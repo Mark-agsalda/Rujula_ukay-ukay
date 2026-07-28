@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template_string, request, redirect, url_for, session, send_file
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -9,9 +9,14 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
 
 
+def get_ph_time():
+    """Returns the current datetime in Philippine Standard Time (UTC+8)"""
+    return datetime.utcnow() + timedelta(hours=8)
+
+
 def get_user_file(username):
     """Generates a separate Excel filename for each store based on current date (YYYY-MM-DD)."""
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = get_ph_time().strftime("%Y-%m-%d")
     safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
     return f"ukay_inventory_{safe_username}_{today_str}.xlsx"
 
@@ -24,7 +29,7 @@ def init_excel(filepath):
         ws.title = "Inventory"
         
         # Header Row
-        headers = ["No.", "Code", "Buyer Name", "Item", "Price"]
+        headers = ["#", "Code", "Buyer Name", "Item", "Price"]
         ws.append(headers)
         
         # Style Header Row
@@ -347,7 +352,9 @@ def home():
     username = session.get('username')
     msg = request.args.get('msg', '')
     items = []
-    today_date = datetime.now().strftime("%B %d, %Y")
+    
+    # Updated to grab the correct Philippine time
+    today_date = get_ph_time().strftime("%B %d, %Y")
 
     if username:
         filepath = get_user_file(username)

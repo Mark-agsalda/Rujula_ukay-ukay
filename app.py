@@ -1,34 +1,149 @@
 import os
+from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, session, send_file
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
-# Uses environment variable if set in cloud, otherwise falls back to key
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
 
 
 def get_user_file(username):
+    """Generates a separate Excel filename for each store based on current date (YYYY-MM-DD)."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
     safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
-    return f"ukay_inventory_{safe_username}.xlsx"
+    return f"ukay_inventory_{safe_username}_{today_str}.xlsx"
 
 
 def init_excel(filepath):
+    """Initializes the Excel workbook if it doesn't exist yet for today."""
     if not os.path.exists(filepath):
         wb = Workbook()
         ws = wb.active
         ws.title = "Inventory"
-        ws.append(["Code", "Buyer Name", "Item", "Price"])
+        
+        # Header Row
+        headers = ["#", "Code", "Buyer Name", "Item", "Price"]
+        ws.append(headers)
+        
+        # Style Header Row
+        header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True)
+        thin_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+
         wb.save(filepath)
 
 
+def rebuild_and_format_excel(filepath):
+    """Applies borders, auto-fits columns, auto-increments #, and adds SUM/COUNTA formulas."""
+    if not os.path.exists(filepath):
+        return
+
+    wb = load_workbook(filepath)
+    ws = wb["Inventory"]
+
+    # Extract data rows (ignoring header and any previous summary rows)
+    raw_rows = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if row and row[1] is not None and str(row[0]).strip() != "TOTAL ITEMS SOLD:":
+            # Extract Code, Name, Item, Price
+            raw_rows.append((row[1], row[2], row[3], float(row[4]) if row[4] else 0.0))
+
+    # Reset sheet
+    ws.delete_rows(1, ws.max_row)
+
+    # Re-add Headers
+    headers = ["#", "Code", "Buyer Name", "Item", "Price"]
+    ws.append(headers)
+
+    # Styling definitions
+    thin_border = Border(
+        left=Side(style='thin', color='D3D3D3'),
+        right=Side(style='thin', color='D3D3D3'),
+        top=Side(style='thin', color='D3D3D3'),
+        bottom=Side(style='thin', color='D3D3D3')
+    )
+    header_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    bold_font = Font(name="Calibri", size=11, bold=True)
+
+    # Apply Header Styles
+    for col_num in range(1, 6):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Add Data Rows with Auto-Increment Number
+    current_row = 2
+    for idx, (code, name, item, price) in enumerate(raw_rows, start=1):
+        ws.append([idx, code, name, item, price])
+        
+        # Apply cell borders and number formatting
+        ws.cell(row=current_row, column=1).alignment = Alignment(horizontal="center")
+        ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="center")
+        ws.cell(row=current_row, column=5).number_format = '₱#,##0.00'
+
+        for col_num in range(1, 6):
+            ws.cell(row=current_row, column=col_num).border = thin_border
+            
+        current_row += 1
+
+    last_data_row = current_row - 1
+
+    if last_data_row >= 2:
+        # Blank row before summary
+        ws.append([])
+        summary_start_row = current_row + 1
+
+        # Total Items Sold Row
+        ws.cell(row=summary_start_row, column=3, value="TOTAL ITEMS SOLD:").font = bold_font
+        ws.cell(row=summary_start_row, column=3).alignment = Alignment(horizontal="right")
+        sold_cell = ws.cell(row=summary_start_row, column=5, value=f"=COUNTA(A2:A{last_data_row})")
+        sold_cell.font = bold_font
+
+        # Total Sales Row
+        ws.cell(row=summary_start_row + 1, column=3, value="TOTAL SALES:").font = bold_font
+        ws.cell(row=summary_start_row + 1, column=3).alignment = Alignment(horizontal="right")
+        sales_cell = ws.cell(row=summary_start_row + 1, column=5, value=f"=SUM(E2:E{last_data_row})")
+        sales_cell.font = bold_font
+        sales_cell.number_format = '₱#,##0.00'
+
+    # Auto-adjust column widths
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+    wb.save(filepath)
+
+
 def read_user_items(filepath):
+    """Reads non-summary items to show on web UI table."""
     items = []
     if os.path.exists(filepath):
-        wb = load_workbook(filepath)
+        wb = load_workbook(filepath, data_only=True)
         ws = wb["Inventory"]
         for row in ws.iter_rows(min_row=2, values_only=True):
-            if any(row):
-                items.append(row)
+            if row and row[0] and str(row[0]).isdigit():
+                # (#, Code, Buyer, Item, Price)
+                items.append((row[0], row[1], row[2], row[3], row[4]))
     return items
 
 
@@ -55,12 +170,7 @@ HTML_TEMPLATE = """
             --border-color: #334155;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', sans-serif;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
 
         body {
             background: var(--bg-gradient);
@@ -74,29 +184,16 @@ HTML_TEMPLATE = """
 
         .container {
             width: 100%;
-            max-width: 480px;
+            max-width: 520px;
             background: var(--card-bg);
             padding: 30px 25px;
             border-radius: 16px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
             border: 1px solid var(--border-color);
         }
 
-        .header-title {
-            text-align: center;
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--text-main);
-            letter-spacing: -0.5px;
-        }
-
-        .header-subtitle {
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 14px;
-            margin-top: 6px;
-            margin-bottom: 22px;
-        }
+        .header-title { text-align: center; font-size: 24px; font-weight: 700; }
+        .header-subtitle { text-align: center; color: var(--text-muted); font-size: 14px; margin: 6px 0 22px; }
 
         .user-tag {
             text-align: center;
@@ -108,29 +205,10 @@ HTML_TEMPLATE = """
             font-size: 13px;
             margin-bottom: 20px;
         }
+        .user-tag a { color: var(--accent); text-decoration: none; font-weight: 600; margin-left: 5px; }
 
-        .user-tag a {
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 600;
-            margin-left: 5px;
-        }
-
-        .user-tag a:hover { text-decoration: underline; }
-
-        .form-group {
-            margin-bottom: 14px;
-        }
-
-        label {
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
-            display: block;
-            margin-bottom: 6px;
-        }
+        .form-group { margin-bottom: 14px; }
+        label { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 6px; }
 
         input[type="text"], input[type="number"] {
             width: 100%;
@@ -140,13 +218,6 @@ HTML_TEMPLATE = """
             border-radius: 10px;
             font-size: 15px;
             color: var(--text-main);
-            transition: all 0.2s ease;
-        }
-
-        input[type="text"]:focus, input[type="number"]:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
         }
 
         .btn {
@@ -160,28 +231,9 @@ HTML_TEMPLATE = """
             text-decoration: none;
             display: inline-block;
             text-align: center;
-            transition: transform 0.1s ease, background 0.2s ease;
         }
-
-        .btn:active { transform: scale(0.98); }
-
-        .btn-green {
-            background: var(--success);
-            color: white;
-            margin-top: 10px;
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
-        }
-
-        .btn-green:hover { background: var(--success-hover); }
-
-        .btn-purple {
-            background: var(--primary);
-            color: white;
-            margin-top: 12px;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
-        }
-
-        .btn-purple:hover { background: var(--primary-hover); }
+        .btn-green { background: var(--success); color: white; margin-top: 10px; }
+        .btn-purple { background: var(--primary); color: white; margin-top: 12px; }
 
         .alert-success {
             background: rgba(16, 185, 129, 0.15);
@@ -190,84 +242,37 @@ HTML_TEMPLATE = """
             padding: 10px;
             border-radius: 8px;
             text-align: center;
-            font-size: 14px;
-            font-weight: 500;
             margin-bottom: 16px;
         }
 
-        .table-wrapper {
-            margin-top: 25px;
-            border-top: 1px solid var(--border-color);
-            padding-top: 20px;
-        }
+        .table-wrapper { margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 20px; }
+        .table-header-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; }
+        .badge-count { background: var(--primary); color: white; font-size: 12px; padding: 2px 8px; border-radius: 12px; }
 
-        .table-header-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-main);
-            margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .badge-count {
-            background: var(--primary);
-            color: white;
-            font-size: 12px;
-            padding: 2px 8px;
-            border-radius: 12px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-
-        th {
-            background: var(--input-bg);
-            color: var(--text-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: 0.5px;
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        td {
-            padding: 10px;
-            border-bottom: 1px solid var(--border-color);
-            color: var(--text-main);
-        }
-
-        tr:last-child td { border-bottom: none; }
-
-        .price-text {
-            color: #34d399;
-            font-weight: 600;
-        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { background: var(--input-bg); color: var(--text-muted); font-size: 11px; }
+        .price-text { color: #34d399; font-weight: 600; }
+        .date-badge { display: inline-block; font-size: 11px; background: #334155; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
     </style>
 </head>
 <body>
     <div class="container">
         {% if not username %}
-            <h2 class="header-title">🛍️ Ukay Inventory</h2>
-            <p class="header-subtitle">Enter your store name to start a private session</p>
+            <h2 class="header-title">🛍️ Ukay Live Inventory</h2>
+            <p class="header-subtitle">Enter store name to start today's session</p>
 
             <form method="POST" action="/login">
                 <div class="form-group">
                     <label>Store Name / Seller ID</label>
                     <input type="text" name="username" placeholder="e.g., Baguio_Ukay_Store" required autofocus>
                 </div>
-                <button type="submit" class="btn btn-green">Start Session</button>
+                <button type="submit" class="btn btn-green">Start Today's Session</button>
             </form>
         {% else %}
             <h2 class="header-title">⚡ Live Item Entry</h2>
             <div class="user-tag">
-                Store: <strong>{{ username }}</strong> | <a href="/logout">Switch Store</a>
+                Store: <strong>{{ username }}</strong> <span class="date-badge">{{ today_date }}</span> | <a href="/logout">Switch Store</a>
             </div>
 
             {% if msg %}
@@ -298,17 +303,18 @@ HTML_TEMPLATE = """
                 <button type="submit" class="btn btn-green">Save Item</button>
             </form>
 
-            <a href="/download" class="btn btn-purple">📥 Download Excel File</a>
+            <a href="/download" class="btn btn-purple">📥 Download Today's Excel File</a>
 
             {% if items %}
                 <div class="table-wrapper">
                     <div class="table-header-title">
-                        Recent Saved Items
+                        Today's Saved Items
                         <span class="badge-count">{{ items|length }}</span>
                     </div>
                     <table>
                         <thead>
                             <tr>
+                                <th>#</th>
                                 <th>Code</th>
                                 <th>Buyer</th>
                                 <th>Item</th>
@@ -319,9 +325,10 @@ HTML_TEMPLATE = """
                             {% for row in items|reverse %}
                             <tr>
                                 <td><strong>{{ row[0] }}</strong></td>
-                                <td>{{ row[1] }}</td>
+                                <td><strong>{{ row[1] }}</strong></td>
                                 <td>{{ row[2] }}</td>
-                                <td class="price-text">₱{{ "%.2f"|format(row[3]) }}</td>
+                                <td>{{ row[3] }}</td>
+                                <td class="price-text">₱{{ "%.2f"|format(row[4]) }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -340,13 +347,14 @@ def home():
     username = session.get('username')
     msg = request.args.get('msg', '')
     items = []
+    today_date = datetime.now().strftime("%B %d, %Y")
 
     if username:
         filepath = get_user_file(username)
         init_excel(filepath)
         items = read_user_items(filepath)
 
-    return render_template_string(HTML_TEMPLATE, username=username, msg=msg, items=items)
+    return render_template_string(HTML_TEMPLATE, username=username, msg=msg, items=items, today_date=today_date)
 
 
 @app.route('/login', methods=['POST'])
@@ -379,12 +387,16 @@ def add_item():
     filepath = get_user_file(username)
     init_excel(filepath)
 
+    # Append raw row first
     wb = load_workbook(filepath)
     ws = wb["Inventory"]
-    ws.append([code, name, item, float(price)])
+    ws.append([0, code, name, item, float(price)])
     wb.save(filepath)
 
-    return redirect(url_for('home', msg=f"Saved: {code} for {name}!"))
+    # Rebuild formatting, auto-increment numbers, borders & formulas
+    rebuild_and_format_excel(filepath)
+
+    return redirect(url_for('home', msg=f"Saved: #{code} for {name}!"))
 
 
 @app.route('/download')
@@ -400,6 +412,5 @@ def download():
 
 
 if __name__ == '__main__':
-    # Cloud platforms assign a dynamic PORT environment variable
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)

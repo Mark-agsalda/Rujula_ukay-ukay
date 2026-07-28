@@ -24,7 +24,7 @@ def init_excel(filepath):
         ws.title = "Inventory"
         
         # Header Row
-        headers = ["#", "Code", "Buyer Name", "Item", "Price"]
+        headers = ["No.", "Code", "Buyer Name", "Item", "Price"]
         ws.append(headers)
         
         # Style Header Row

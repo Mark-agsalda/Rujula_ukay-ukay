@@ -433,10 +433,8 @@ HTML_TEMPLATE = """
                         <input type="number" step="0.01" name="price" placeholder="e.g., 250" required autocomplete="off">
                     </div>
 
-                    <button type="submit" class="btn btn-green">Save Item (Status: Pending)</button>
+                    <button type="submit" class="btn btn-green">Save Item</button>
                 </form>
-                
-                <a href="/download?date={{ today_str }}" class="btn btn-purple">📥 Download Today's Excel File</a>
             </div>
 
             <!-- TAB 2: View & Edit Inventory by Date -->

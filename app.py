@@ -247,13 +247,13 @@ HTML_TEMPLATE = """
             min-height: 100vh;
             display: flex;
             justify-content: center;
-            align-items: flex-start;
+            align-items: {% if not username %}center{% else %}flex-start{% endif %};
             padding: 30px 15px;
         }
 
         .container {
             width: 100%;
-            max-width: 850px;
+            max-width: {% if not username %}420px{% else %}850px{% endif %};
             background: var(--card-bg);
             padding: 28px 24px;
             border-radius: 16px;

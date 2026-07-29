@@ -589,10 +589,6 @@ HTML_TEMPLATE = """
                         <div class="val" style="color:#f87171;">{{ report_data.total_cancelled }}</div>
                     </div>
                 </div>
-
-                <p style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 15px;">
-                    Summary compiled from {{ report_data.file_count }} live session file(s) in {{ report_month }}/{{ report_year }}.
-                </p>
             </div>
         {% endif %}
     </div>

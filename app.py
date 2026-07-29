@@ -66,8 +66,8 @@ def rebuild_and_format_excel(filepath):
 
     raw_rows = []
     for row in ws.iter_rows(min_row=2, values_only=True):
-        if row and row[1] is not None and str(row[0]).strip() not in ["TOTAL ITEMS SOLD:", "TOTAL PAID SALES:", "TOTAL CANCELLED:"]:
-            status = str(row[5]).strip() if len(row) > 5 and row[5] else "Paid"
+        if row and row[1] is not None and str(row[0]).strip() not in ["TOTAL ITEMS SOLD:", "TOTAL PAID SALES:", "TOTAL CANCELLED:", "TOTAL PENDING:"]:
+            status = str(row[5]).strip() if len(row) > 5 and row[5] else "Pending"
             raw_rows.append((row[1], row[2], row[3], float(row[4]) if row[4] else 0.0, status))
 
     ws.delete_rows(1, ws.max_row)
@@ -130,6 +130,12 @@ def rebuild_and_format_excel(filepath):
         cancel_cell = ws.cell(row=summary_start_row + 2, column=5, value=f'=COUNTIF(F2:F{last_data_row}, "Cancelled")')
         cancel_cell.font = bold_font
 
+        # Total Pending
+        ws.cell(row=summary_start_row + 3, column=3, value="TOTAL PENDING:").font = bold_font
+        ws.cell(row=summary_start_row + 3, column=3).alignment = Alignment(horizontal="right")
+        pending_cell = ws.cell(row=summary_start_row + 3, column=5, value=f'=COUNTIF(F2:F{last_data_row}, "Pending")')
+        pending_cell.font = bold_font
+
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
@@ -149,7 +155,7 @@ def read_user_items(filepath):
         ws = wb["Inventory"]
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row and row[0] and str(row[0]).isdigit():
-                status = str(row[5]) if len(row) > 5 and row[5] else "Paid"
+                status = str(row[5]) if len(row) > 5 and row[5] else "Pending"
                 items.append({
                     'num': row[0],
                     'code': row[1],
@@ -178,7 +184,7 @@ def update_item_status_in_excel(filepath, item_num, new_status):
 
 
 def get_monthly_report_data(username, year_str, month_str):
-    """Calculates Total Sales, Items Sold, and Cancelled Items for a specified month."""
+    """Calculates Total Sales, Items Sold, Cancelled Items, and Pending Items for a specified month."""
     safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
     pattern = f"ukay_inventory_{safe_username}_{year_str}-{month_str}-*.xlsx"
     files = glob.glob(pattern)
@@ -186,6 +192,7 @@ def get_monthly_report_data(username, year_str, month_str):
     total_sales = 0.0
     total_items_sold = 0
     total_cancelled = 0
+    total_pending = 0
     file_count = len(files)
 
     for file in files:
@@ -196,11 +203,14 @@ def get_monthly_report_data(username, year_str, month_str):
                 total_items_sold += 1
             elif item['status'] == 'Cancelled':
                 total_cancelled += 1
+            elif item['status'] == 'Pending':
+                total_pending += 1
 
     return {
         'total_sales': total_sales,
         'total_items_sold': total_items_sold,
         'total_cancelled': total_cancelled,
+        'total_pending': total_pending,
         'file_count': file_count
     }
 
@@ -221,6 +231,7 @@ HTML_TEMPLATE = """
             --primary: #6366f1;
             --primary-hover: #4f46e5;
             --success: #10b981;
+            --warning: #f59e0b;
             --danger: #ef4444;
             --accent: #ec4899;
             --text-main: #f8fafc;
@@ -242,7 +253,7 @@ HTML_TEMPLATE = """
 
         .container {
             width: 100%;
-            max-width: 800px;
+            max-width: 850px;
             background: var(--card-bg);
             padding: 28px 24px;
             border-radius: 16px;
@@ -318,7 +329,7 @@ HTML_TEMPLATE = """
         }
         .btn-green { background: var(--success); color: white; margin-top: 10px; }
         .btn-purple { background: var(--primary); color: white; margin-top: 10px; }
-        .btn-small { width: auto; padding: 6px 12px; font-size: 12px; }
+        .btn-small { width: auto; padding: 6px 10px; font-size: 12px; border-radius: 6px; }
 
         .alert-success {
             background: rgba(16, 185, 129, 0.15);
@@ -347,23 +358,26 @@ HTML_TEMPLATE = """
         
         .price-text { color: #34d399; font-weight: 600; }
         .status-paid { background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .status-pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
         .status-cancelled { background: rgba(239, 68, 68, 0.2); color: #f87171; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+
+        .action-btns { display: flex; gap: 6px; align-items: center; }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 12px;
             margin-top: 20px;
         }
         .stat-card {
             background: var(--input-bg);
-            padding: 18px;
+            padding: 16px;
             border-radius: 12px;
             text-align: center;
             border: 1px solid var(--border-color);
         }
-        .stat-card h4 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
-        .stat-card .val { font-size: 20px; font-weight: 700; color: #a5b4fc; }
+        .stat-card h4 { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+        .stat-card .val { font-size: 18px; font-weight: 700; color: #a5b4fc; }
     </style>
 </head>
 <body>
@@ -419,7 +433,7 @@ HTML_TEMPLATE = """
                         <input type="number" step="0.01" name="price" placeholder="e.g., 250" required autocomplete="off">
                     </div>
 
-                    <button type="submit" class="btn btn-green">Save Item</button>
+                    <button type="submit" class="btn btn-green">Save Item (Status: Pending)</button>
                 </form>
                 
                 <a href="/download?date={{ today_str }}" class="btn btn-purple">📥 Download Today's Excel File</a>
@@ -490,25 +504,36 @@ HTML_TEMPLATE = """
                                 <td>{{ row.item }}</td>
                                 <td class="price-text">₱{{ "%.2f"|format(row.price) }}</td>
                                 <td>
-                                    <span class="{{ 'status-paid' if row.status == 'Paid' else 'status-cancelled' }}">
+                                    <span class="{% if row.status == 'Paid' %}status-paid{% elif row.status == 'Cancelled' %}status-cancelled{% else %}status-pending{% endif %}">
                                         {{ row.status }}
                                     </span>
                                 </td>
                                 <td>
-                                    <form method="POST" action="/update_status" style="display:inline;">
-                                        <input type="hidden" name="item_num" value="{{ row.num }}">
-                                        <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
-                                        <input type="hidden" name="view_month" value="{{ view_month }}">
-                                        <input type="hidden" name="view_day" value="{{ view_day }}">
-                                        <input type="hidden" name="view_year" value="{{ view_year }}">
-                                        {% if row.status == 'Paid' %}
-                                            <input type="hidden" name="new_status" value="Cancelled">
-                                            <button type="submit" class="btn btn-small" style="background:var(--danger); color:white;">Mark Cancelled</button>
-                                        {% else %}
-                                            <input type="hidden" name="new_status" value="Paid">
-                                            <button type="submit" class="btn btn-small" style="background:var(--success); color:white;">Mark Paid</button>
+                                    <div class="action-btns">
+                                        {% if row.status != 'Paid' %}
+                                            <form method="POST" action="/update_status" style="display:inline;">
+                                                <input type="hidden" name="item_num" value="{{ row.num }}">
+                                                <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
+                                                <input type="hidden" name="view_month" value="{{ view_month }}">
+                                                <input type="hidden" name="view_day" value="{{ view_day }}">
+                                                <input type="hidden" name="view_year" value="{{ view_year }}">
+                                                <input type="hidden" name="new_status" value="Paid">
+                                                <button type="submit" class="btn btn-small" style="background:var(--success); color:white;">Paid</button>
+                                            </form>
                                         {% endif %}
-                                    </form>
+
+                                        {% if row.status != 'Cancelled' %}
+                                            <form method="POST" action="/update_status" style="display:inline;">
+                                                <input type="hidden" name="item_num" value="{{ row.num }}">
+                                                <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
+                                                <input type="hidden" name="view_month" value="{{ view_month }}">
+                                                <input type="hidden" name="view_day" value="{{ view_day }}">
+                                                <input type="hidden" name="view_year" value="{{ view_year }}">
+                                                <input type="hidden" name="new_status" value="Cancelled">
+                                                <button type="submit" class="btn btn-small" style="background:var(--danger); color:white;">Cancel</button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -554,6 +579,10 @@ HTML_TEMPLATE = """
                     <div class="stat-card">
                         <h4>Total Items Sold</h4>
                         <div class="val">{{ report_data.total_items_sold }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Pending Items</h4>
+                        <div class="val" style="color:#fbbf24;">{{ report_data.total_pending }}</div>
                     </div>
                     <div class="stat-card">
                         <h4>Total Cancelled</h4>
@@ -610,7 +639,7 @@ def home():
     report_year = request.args.get('report_year', now.strftime("%Y"))
 
     retrieved_items = []
-    report_data = {'total_sales': 0.0, 'total_items_sold': 0, 'total_cancelled': 0, 'file_count': 0}
+    report_data = {'total_sales': 0.0, 'total_items_sold': 0, 'total_cancelled': 0, 'total_pending': 0, 'file_count': 0}
 
     if username:
         # Load View Tab Items
@@ -672,12 +701,13 @@ def add_item():
 
     wb = load_workbook(filepath)
     ws = wb["Inventory"]
-    ws.append([0, code, name, item, float(price), "Paid"])
+    # Saved as Pending by default
+    ws.append([0, code, name, item, float(price), "Pending"])
     wb.save(filepath)
 
     rebuild_and_format_excel(filepath)
 
-    return redirect(url_for('home', msg=f"Saved: #{code} for {name}!", tab='add'))
+    return redirect(url_for('home', msg=f"Saved: #{code} for {name} (Pending)!", tab='add'))
 
 
 @app.route('/update_status', methods=['POST'])

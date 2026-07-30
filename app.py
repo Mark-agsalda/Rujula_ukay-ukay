@@ -5,6 +5,7 @@ from flask import Flask, render_template_string, request, redirect, url_for, ses
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
@@ -39,7 +40,7 @@ def init_excel(filepath):
         ws = wb.active
         ws.title = "Inventory"
         
-        headers = ["#", "Code", "Buyer Name", "Item", "Price", "Status"]
+        headers = ["#", "Code", "Buyer Name", "Item", "Price", "Status", "Action"]
         ws.append(headers)
         
         header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
@@ -77,7 +78,7 @@ def rebuild_and_format_excel(filepath):
 
     ws.delete_rows(1, ws.max_row)
 
-    headers = ["#", "Code", "Buyer Name", "Item", "Price", "Status"]
+    headers = ["#", "Code", "Buyer Name", "Item", "Price", "Status", "Action"]
     ws.append(headers)
 
     thin_border = Border(
@@ -90,7 +91,7 @@ def rebuild_and_format_excel(filepath):
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     bold_font = Font(name="Calibri", size=11, bold=True)
 
-    for col_num in range(1, 7):
+    for col_num in range(1, 8):
         cell = ws.cell(row=1, column=col_num)
         cell.fill = header_fill
         cell.font = header_font
@@ -98,21 +99,29 @@ def rebuild_and_format_excel(filepath):
 
     current_row = 2
     for idx, (code, name, item, price, status) in enumerate(raw_rows, start=1):
-        ws.append([idx, code, name, item, price, status])
+        # Action column in Excel displays available triggers or status hint
+        action_text = "Select Status Dropdown" if status == "Pending" else f"Marked as {status}"
+        ws.append([idx, code, name, item, price, status, action_text])
         
         ws.cell(row=current_row, column=1).alignment = Alignment(horizontal="center")
         ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="center")
         ws.cell(row=current_row, column=5).number_format = '₱#,##0.00'
         ws.cell(row=current_row, column=6).alignment = Alignment(horizontal="center")
+        ws.cell(row=current_row, column=7).alignment = Alignment(horizontal="center")
 
-        for col_num in range(1, 7):
+        for col_num in range(1, 8):
             ws.cell(row=current_row, column=col_num).border = thin_border
             
         current_row += 1
 
     last_data_row = current_row - 1
 
+    # Excel Data Validation: Dropdown list for Status column (Paid, Cancelled, Pending)
     if last_data_row >= 2:
+        dv = DataValidation(type="list", formula1='"Pending,Paid,Cancelled"', allow_blank=False)
+        ws.add_data_validation(dv)
+        dv.add(f"F2:F{last_data_row}")
+
         ws.append([])
         summary_start_row = current_row + 1
 
@@ -183,6 +192,7 @@ def update_item_status_in_excel(filepath, item_num, new_status):
         cell_val = ws.cell(row=row, column=1).value
         if cell_val is not None and str(cell_val).isdigit() and int(cell_val) == int(item_num):
             ws.cell(row=row, column=6, value=new_status)
+            ws.cell(row=row, column=7, value=f"Marked as {new_status}")
             break
     wb.save(filepath)
     rebuild_and_format_excel(filepath)
@@ -701,7 +711,7 @@ def add_item():
     wb = load_workbook(filepath)
     ws = wb["Inventory"]
     # Saved as Pending by default
-    ws.append([0, code, name, item, float(price), "Pending"])
+    ws.append([0, code, name, item, float(price), "Pending", "Select Status Dropdown"])
     wb.save(filepath)
 
     rebuild_and_format_excel(filepath)

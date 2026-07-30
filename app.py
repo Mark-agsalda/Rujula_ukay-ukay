@@ -9,6 +9,10 @@ from openpyxl.utils import get_column_letter
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
 
+# Folder setup for storing inventory Excel files
+INVENTORY_FOLDER = 'excel_files'
+os.makedirs(INVENTORY_FOLDER, exist_ok=True)
+
 
 def get_ph_time():
     """Returns the current datetime in Philippine Standard Time (UTC+8)"""
@@ -16,13 +20,14 @@ def get_ph_time():
 
 
 def get_user_file_by_date(username, date_str):
-    """Generates file name for a specific YYYY-MM-DD date."""
+    """Generates file path for a specific YYYY-MM-DD date inside INVENTORY_FOLDER."""
     safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
-    return f"ukay_inventory_{safe_username}_{date_str}.xlsx"
+    filename = f"ukay_inventory_{safe_username}_{date_str}.xlsx"
+    return os.path.join(INVENTORY_FOLDER, filename)
 
 
 def get_user_file(username):
-    """Generates a separate Excel filename for current date (YYYY-MM-DD)."""
+    """Generates an Excel filepath for current date (YYYY-MM-DD) inside INVENTORY_FOLDER."""
     today_str = get_ph_time().strftime("%Y-%m-%d")
     return get_user_file_by_date(username, today_str)
 
@@ -168,7 +173,7 @@ def read_user_items(filepath):
 
 
 def update_item_status_in_excel(filepath, item_num, new_status):
-    """Updates the status of a specific row by its auto-increment ID (#)."""
+    """Updates the status of a specific row in the EXACT same Excel file."""
     if not os.path.exists(filepath):
         return
     
@@ -186,7 +191,7 @@ def update_item_status_in_excel(filepath, item_num, new_status):
 def get_monthly_report_data(username, year_str, month_str):
     """Calculates Total Sales, Items Sold, Cancelled Items, and Pending Items for a specified month."""
     safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
-    pattern = f"ukay_inventory_{safe_username}_{year_str}-{month_str}-*.xlsx"
+    pattern = os.path.join(INVENTORY_FOLDER, f"ukay_inventory_{safe_username}_{year_str}-{month_str}-*.xlsx")
     files = glob.glob(pattern)
     
     total_sales = 0.0
@@ -718,6 +723,7 @@ def update_status():
     view_day = request.form.get('view_day')
     view_year = request.form.get('view_year')
 
+    # Reads and updates the exact target file corresponding to the retrieved date
     filepath = get_user_file_by_date(username, file_date)
     update_item_status_in_excel(filepath, item_num, new_status)
 

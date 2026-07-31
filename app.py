@@ -24,7 +24,7 @@ MYSQL_DB = os.environ.get('MYSQL_DB', 'ukay_inventory')
 MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
 
 def get_db_connection():
-    """Connects to MySQL server and database."""
+    """Connects to MySQL server and database with Philippine Timezone (+08:00)."""
     conn = mysql.connector.connect(
         host=MYSQL_HOST,
         user=MYSQL_USER,
@@ -32,6 +32,11 @@ def get_db_connection():
         database=MYSQL_DB,
         port=MYSQL_PORT
     )
+    # Set the MySQL session timezone to Philippine Time (+08:00)
+    cursor = conn.cursor()
+    cursor.execute("SET time_zone = '+08:00';")
+    cursor.close()
+    
     return conn
 
 def init_db():

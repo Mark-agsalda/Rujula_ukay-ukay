@@ -15,7 +15,7 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
-DB_NAME = "ukay-inventory.db"
+DB_NAME = "ukayinventory.db"
 
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)

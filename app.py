@@ -1,9 +1,18 @@
-import os
 import glob
+import os
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, session, send_file
+
+from flask import (
+    Flask,
+    redirect,
+    render_template_string,
+    request,
+    send_file,
+    session,
+    url_for,
+)
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
@@ -11,217 +20,277 @@ app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
 
 
 def get_ph_time():
-    """Returns the current datetime in Philippine Standard Time (UTC+8)"""
-    return datetime.utcnow() + timedelta(hours=8)
+  """Returns the current datetime in Philippine Standard Time (UTC+8)"""
+  return datetime.utcnow() + timedelta(hours=8)
 
 
 def get_user_file_by_date(username, date_str):
-    """Generates file name for a specific YYYY-MM-DD date."""
-    safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
-    return f"ukay_inventory_{safe_username}_{date_str}.xlsx"
+  """Generates file name for a specific YYYY-MM-DD date."""
+  safe_username = ''.join(
+      c for c in username if c.isalnum() or c in ('_', '-')
+  ).lower()
+  return f'ukay_inventory_{safe_username}_{date_str}.xlsx'
 
 
 def get_user_file(username):
-    """Generates a separate Excel filename for current date (YYYY-MM-DD)."""
-    today_str = get_ph_time().strftime("%Y-%m-%d")
-    return get_user_file_by_date(username, today_str)
+  """Generates a separate Excel filename for current date (YYYY-MM-DD)."""
+  today_str = get_ph_time().strftime('%Y-%m-%d')
+  return get_user_file_by_date(username, today_str)
 
 
 def init_excel(filepath):
-    """Initializes the Excel workbook if it doesn't exist yet."""
-    if not os.path.exists(filepath):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Inventory"
-        
-        headers = ["#", "Code", "Buyer Name", "Item", "Price", "Status", "Action"]
-        ws.append(headers)
-        
-        header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-        header_font = Font(name="Calibri", size=11, bold=True)
-        thin_border = Border(
-            left=Side(style='thin', color='000000'),
-            right=Side(style='thin', color='000000'),
-            top=Side(style='thin', color='000000'),
-            bottom=Side(style='thin', color='000000')
-        )
+  """Initializes the Excel workbook if it doesn't exist yet."""
+  if not os.path.exists(filepath):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Inventory'
 
-        for col_num in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = thin_border
+    headers = ['#', 'Code', 'Buyer Name', 'Item', 'Price', 'Status']
+    ws.append(headers)
 
-        wb.save(filepath)
+    header_fill = PatternFill(
+        start_color='D9D9D9', end_color='D9D9D9', fill_type='solid'
+    )
+    header_font = Font(name='Calibri', size=11, bold=True)
+    thin_border = Border(
+        left=Side(style='thin', color='000000'),
+        right=Side(style='thin', color='000000'),
+        top=Side(style='thin', color='000000'),
+        bottom=Side(style='thin', color='000000'),
+    )
+
+    for col_num in range(1, len(headers) + 1):
+      cell = ws.cell(row=1, column=col_num)
+      cell.fill = header_fill
+      cell.font = header_font
+      cell.alignment = Alignment(horizontal='center', vertical='center')
+      cell.border = thin_border
+
+    wb.save(filepath)
 
 
 def rebuild_and_format_excel(filepath):
-    """Applies borders, auto-fits columns, auto-increments #, and adds SUMIF/COUNTIF formulas."""
-    if not os.path.exists(filepath):
-        return
+  """Applies borders, auto-fits columns, auto-increments #, and adds SUMIF/COUNTIF formulas."""
+  if not os.path.exists(filepath):
+    return
 
-    wb = load_workbook(filepath)
-    ws = wb["Inventory"]
+  wb = load_workbook(filepath)
+  ws = wb['Inventory']
 
-    raw_rows = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row and row[1] is not None and str(row[0]).strip() not in ["TOTAL ITEMS SOLD:", "TOTAL PAID SALES:", "TOTAL CANCELLED:", "TOTAL PENDING:"]:
-            status = str(row[5]).strip() if len(row) > 5 and row[5] else "Pending"
-            raw_rows.append((row[1], row[2], row[3], float(row[4]) if row[4] else 0.0, status))
+  raw_rows = []
+  for row in ws.iter_rows(min_row=2, values_only=True):
+    if (
+        row
+        and row[1] is not None
+        and str(row[0]).strip()
+        not in [
+            'TOTAL ITEMS SOLD:',
+            'TOTAL PAID SALES:',
+            'TOTAL CANCELLED:',
+            'TOTAL PENDING:',
+        ]
+    ):
+      status = str(row[5]).strip() if len(row) > 5 and row[5] else 'Pending'
+      raw_rows.append((
+          row[1],
+          row[2],
+          row[3],
+          float(row[4]) if row[4] else 0.0,
+          status,
+      ))
 
-    ws.delete_rows(1, ws.max_row)
+  ws.delete_rows(1, ws.max_row)
 
-    headers = ["#", "Code", "Buyer Name", "Item", "Price", "Status", "Action"]
-    ws.append(headers)
+  headers = ['#', 'Code', 'Buyer Name', 'Item', 'Price', 'Status']
+  ws.append(headers)
 
-    thin_border = Border(
-        left=Side(style='thin', color='D3D3D3'),
-        right=Side(style='thin', color='D3D3D3'),
-        top=Side(style='thin', color='D3D3D3'),
-        bottom=Side(style='thin', color='D3D3D3')
+  thin_border = Border(
+      left=Side(style='thin', color='D3D3D3'),
+      right=Side(style='thin', color='D3D3D3'),
+      top=Side(style='thin', color='D3D3D3'),
+      bottom=Side(style='thin', color='D3D3D3'),
+  )
+  header_fill = PatternFill(
+      start_color='334155', end_color='334155', fill_type='solid'
+  )
+  header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+  bold_font = Font(name='Calibri', size=11, bold=True)
+
+  for col_num in range(1, 7):
+    cell = ws.cell(row=1, column=col_num)
+    cell.fill = header_fill
+    cell.font = header_font
+    cell.alignment = Alignment(horizontal='center', vertical='center')
+
+  current_row = 2
+  for idx, (code, name, item, price, status) in enumerate(raw_rows, start=1):
+    ws.append([idx, code, name, item, price, status])
+
+    ws.cell(row=current_row, column=1).alignment = Alignment(
+        horizontal='center'
     )
-    header_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
-    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    bold_font = Font(name="Calibri", size=11, bold=True)
+    ws.cell(row=current_row, column=2).alignment = Alignment(
+        horizontal='center'
+    )
+    ws.cell(row=current_row, column=5).number_format = '₱#,##0.00'
+    ws.cell(row=current_row, column=6).alignment = Alignment(
+        horizontal='center'
+    )
 
-    for col_num in range(1, 8):
-        cell = ws.cell(row=1, column=col_num)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for col_num in range(1, 7):
+      ws.cell(row=current_row, column=col_num).border = thin_border
 
-    current_row = 2
-    for idx, (code, name, item, price, status) in enumerate(raw_rows, start=1):
-        # Determine text for Excel Action Column
-        if status == "Paid":
-            action_text = "Mark Cancelled"
-        elif status == "Cancelled":
-            action_text = "Mark Paid"
-        else:
-            action_text = "Mark Paid / Mark Cancelled"
+    current_row += 1
 
-        ws.append([idx, code, name, item, price, status, action_text])
-        
-        ws.cell(row=current_row, column=1).alignment = Alignment(horizontal="center")
-        ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="center")
-        ws.cell(row=current_row, column=5).number_format = '₱#,##0.00'
-        ws.cell(row=current_row, column=6).alignment = Alignment(horizontal="center")
-        ws.cell(row=current_row, column=7).alignment = Alignment(horizontal="center")
+  last_data_row = current_row - 1
 
-        for col_num in range(1, 8):
-            ws.cell(row=current_row, column=col_num).border = thin_border
-            
-        current_row += 1
+  if last_data_row >= 2:
+    ws.append([])
+    summary_start_row = current_row + 1
 
-    last_data_row = current_row - 1
+    # Total Items
+    ws.cell(
+        row=summary_start_row, column=3, value='TOTAL ITEMS SOLD:'
+    ).font = bold_font
+    ws.cell(row=summary_start_row, column=3).alignment = Alignment(
+        horizontal='right'
+    )
+    sold_cell = ws.cell(
+        row=summary_start_row,
+        column=5,
+        value=f'=COUNTIF(F2:F{last_data_row}, "Paid")',
+    )
+    sold_cell.font = bold_font
 
-    if last_data_row >= 2:
-        ws.append([])
-        summary_start_row = current_row + 1
+    # Total Paid Sales
+    ws.cell(
+        row=summary_start_row + 1, column=3, value='TOTAL PAID SALES:'
+    ).font = bold_font
+    ws.cell(row=summary_start_row + 1, column=3).alignment = Alignment(
+        horizontal='right'
+    )
+    sales_cell = ws.cell(
+        row=summary_start_row + 1,
+        column=5,
+        value=(
+            f'=SUMIF(F2:F{last_data_row}, "Paid",'
+            f' E2:E{last_data_row})'
+        ),
+    )
+    sales_cell.font = bold_font
+    sales_cell.number_format = '₱#,##0.00'
 
-        # Total Items
-        ws.cell(row=summary_start_row, column=3, value="TOTAL ITEMS SOLD:").font = bold_font
-        ws.cell(row=summary_start_row, column=3).alignment = Alignment(horizontal="right")
-        sold_cell = ws.cell(row=summary_start_row, column=5, value=f'=COUNTIF(F2:F{last_data_row}, "Paid")')
-        sold_cell.font = bold_font
+    # Total Cancelled
+    ws.cell(
+        row=summary_start_row + 2, column=3, value='TOTAL CANCELLED:'
+    ).font = bold_font
+    ws.cell(row=summary_start_row + 2, column=3).alignment = Alignment(
+        horizontal='right'
+    )
+    cancel_cell = ws.cell(
+        row=summary_start_row + 2,
+        column=5,
+        value=f'=COUNTIF(F2:F{last_data_row}, "Cancelled")',
+    )
+    cancel_cell.font = bold_font
 
-        # Total Paid Sales
-        ws.cell(row=summary_start_row + 1, column=3, value="TOTAL PAID SALES:").font = bold_font
-        ws.cell(row=summary_start_row + 1, column=3).alignment = Alignment(horizontal="right")
-        sales_cell = ws.cell(row=summary_start_row + 1, column=5, value=f'=SUMIF(F2:F{last_data_row}, "Paid", E2:E{last_data_row})')
-        sales_cell.font = bold_font
-        sales_cell.number_format = '₱#,##0.00'
+    # Total Pending
+    ws.cell(
+        row=summary_start_row + 3, column=3, value='TOTAL PENDING:'
+    ).font = bold_font
+    ws.cell(row=summary_start_row + 3, column=3).alignment = Alignment(
+        horizontal='right'
+    )
+    pending_cell = ws.cell(
+        row=summary_start_row + 3,
+        column=5,
+        value=f'=COUNTIF(F2:F{last_data_row}, "Pending")',
+    )
+    pending_cell.font = bold_font
 
-        # Total Cancelled
-        ws.cell(row=summary_start_row + 2, column=3, value="TOTAL CANCELLED:").font = bold_font
-        ws.cell(row=summary_start_row + 2, column=3).alignment = Alignment(horizontal="right")
-        cancel_cell = ws.cell(row=summary_start_row + 2, column=5, value=f'=COUNTIF(F2:F{last_data_row}, "Cancelled")')
-        cancel_cell.font = bold_font
+  for col in ws.columns:
+    max_len = 0
+    col_letter = get_column_letter(col[0].column)
+    for cell in col:
+      if cell.value:
+        max_len = max(max_len, len(str(cell.value)))
+    ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
-        # Total Pending
-        ws.cell(row=summary_start_row + 3, column=3, value="TOTAL PENDING:").font = bold_font
-        ws.cell(row=summary_start_row + 3, column=3).alignment = Alignment(horizontal="right")
-        pending_cell = ws.cell(row=summary_start_row + 3, column=5, value=f'=COUNTIF(F2:F{last_data_row}, "Pending")')
-        pending_cell.font = bold_font
-
-    for col in ws.columns:
-        max_len = 0
-        col_letter = get_column_letter(col[0].column)
-        for cell in col:
-            if cell.value:
-                max_len = max(max_len, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
-
-    wb.save(filepath)
+  wb.save(filepath)
 
 
 def read_user_items(filepath):
-    """Reads inventory rows from an Excel file."""
-    items = []
-    if os.path.exists(filepath):
-        wb = load_workbook(filepath, data_only=True)
-        ws = wb["Inventory"]
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if row and row[0] and str(row[0]).isdigit():
-                status = str(row[5]) if len(row) > 5 and row[5] else "Pending"
-                items.append({
-                    'num': row[0],
-                    'code': row[1],
-                    'name': row[2],
-                    'item': row[3],
-                    'price': row[4] or 0.0,
-                    'status': status
-                })
-    return items
+  """Reads inventory rows from an Excel file."""
+  items = []
+  if os.path.exists(filepath):
+    wb = load_workbook(filepath, data_only=True)
+    ws = wb['Inventory']
+    for row in ws.iter_rows(min_row=2, values_only=True):
+      if row and row[0] and str(row[0]).isdigit():
+        status = str(row[5]) if len(row) > 5 and row[5] else 'Pending'
+        items.append({
+            'num': row[0],
+            'code': row[1],
+            'name': row[2],
+            'item': row[3],
+            'price': row[4] or 0.0,
+            'status': status,
+        })
+  return items
 
 
 def update_item_status_in_excel(filepath, item_num, new_status):
-    """Updates the status of a specific row by its auto-increment ID (#)."""
-    if not os.path.exists(filepath):
-        return
-    
-    wb = load_workbook(filepath)
-    ws = wb["Inventory"]
-    for row in range(2, ws.max_row + 1):
-        cell_val = ws.cell(row=row, column=1).value
-        if cell_val is not None and str(cell_val).isdigit() and int(cell_val) == int(item_num):
-            ws.cell(row=row, column=6, value=new_status)
-            break
-    wb.save(filepath)
-    rebuild_and_format_excel(filepath)
+  """Updates the status of a specific row by its auto-increment ID (#)."""
+  if not os.path.exists(filepath):
+    return
+
+  wb = load_workbook(filepath)
+  ws = wb['Inventory']
+  for row in range(2, ws.max_row + 1):
+    cell_val = ws.cell(row=row, column=1).value
+    if (
+        cell_val is not None
+        and str(cell_val).isdigit()
+        and int(cell_val) == int(item_num)
+    ):
+      ws.cell(row=row, column=6, value=new_status)
+      break
+  wb.save(filepath)
+  rebuild_and_format_excel(filepath)
 
 
 def get_monthly_report_data(username, year_str, month_str):
-    """Calculates Total Sales, Items Sold, Cancelled Items, and Pending Items for a specified month."""
-    safe_username = "".join(c for c in username if c.isalnum() or c in ('_', '-')).lower()
-    pattern = f"ukay_inventory_{safe_username}_{year_str}-{month_str}-*.xlsx"
-    files = glob.glob(pattern)
-    
-    total_sales = 0.0
-    total_items_sold = 0
-    total_cancelled = 0
-    total_pending = 0
-    file_count = len(files)
+  """Calculates Total Sales, Items Sold, Cancelled Items, and Pending Items for a specified month."""
+  safe_username = ''.join(
+      c for c in username if c.isalnum() or c in ('_', '-')
+  ).lower()
+  pattern = f'ukay_inventory_{safe_username}_{year_str}-{month_str}-*.xlsx'
+  files = glob.glob(pattern)
 
-    for file in files:
-        items = read_user_items(file)
-        for item in items:
-            if item['status'] == 'Paid':
-                total_sales += float(item['price'])
-                total_items_sold += 1
-            elif item['status'] == 'Cancelled':
-                total_cancelled += 1
-            elif item['status'] == 'Pending':
-                total_pending += 1
+  total_sales = 0.0
+  total_items_sold = 0
+  total_cancelled = 0
+  total_pending = 0
+  file_count = len(files)
 
-    return {
-        'total_sales': total_sales,
-        'total_items_sold': total_items_sold,
-        'total_cancelled': total_cancelled,
-        'total_pending': total_pending,
-        'file_count': file_count
-    }
+  for file in files:
+    items = read_user_items(file)
+    for item in items:
+      if item['status'] == 'Paid':
+        total_sales += float(item['price'])
+        total_items_sold += 1
+      elif item['status'] == 'Cancelled':
+        total_cancelled += 1
+      elif item['status'] == 'Pending':
+        total_pending += 1
+
+  return {
+      'total_sales': total_sales,
+      'total_items_sold': total_items_sold,
+      'total_cancelled': total_cancelled,
+      'total_pending': total_pending,
+      'file_count': file_count,
+  }
 
 
 HTML_TEMPLATE = """
@@ -370,7 +439,11 @@ HTML_TEMPLATE = """
         .status-pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
         .status-cancelled { background: rgba(239, 68, 68, 0.2); color: #f87171; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
 
-        .action-btns { display: flex; gap: 6px; align-items: center; }
+        .checkbox-group { display: flex; gap: 12px; align-items: center; }
+        .checkbox-label { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 4px; cursor: pointer; text-transform: none; }
+        .checkbox-label.paid-label { color: #34d399; }
+        .checkbox-label.cancel-label { color: #f87171; }
+        .checkbox-group input[type="checkbox"] { cursor: pointer; accent-color: var(--primary); width: 16px; height: 16px; }
 
         .stats-grid {
             display: grid;
@@ -499,7 +572,7 @@ HTML_TEMPLATE = """
                                 <th>Item</th>
                                 <th>Price</th>
                                 <th>Status</th>
-                                <th>Action</th>
+                                <th>Paid / Cancel</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -516,30 +589,32 @@ HTML_TEMPLATE = """
                                     </span>
                                 </td>
                                 <td>
-                                    <div class="action-btns">
-                                        {% if row.status != 'Paid' %}
-                                            <form method="POST" action="/update_status" style="display:inline;">
-                                                <input type="hidden" name="item_num" value="{{ row.num }}">
-                                                <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
-                                                <input type="hidden" name="view_month" value="{{ view_month }}">
-                                                <input type="hidden" name="view_day" value="{{ view_day }}">
-                                                <input type="hidden" name="view_year" value="{{ view_year }}">
-                                                <input type="hidden" name="new_status" value="Paid">
-                                                <button type="submit" class="btn btn-small" style="background:var(--success); color:white;">Paid</button>
-                                            </form>
-                                        {% endif %}
+                                    <div class="checkbox-group">
+                                        <!-- Paid Checkbox Form -->
+                                        <form method="POST" action="/update_status" style="margin:0;">
+                                            <input type="hidden" name="item_num" value="{{ row.num }}">
+                                            <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
+                                            <input type="hidden" name="view_month" value="{{ view_month }}">
+                                            <input type="hidden" name="view_day" value="{{ view_day }}">
+                                            <input type="hidden" name="view_year" value="{{ view_year }}">
+                                            <input type="hidden" name="new_status" value="{% if row.status == 'Paid' %}Pending{% else %}Paid{% endif %}">
+                                            <label class="checkbox-label paid-label">
+                                                <input type="checkbox" {% if row.status == 'Paid' %}checked{% endif %} onchange="this.form.submit()"> Paid
+                                            </label>
+                                        </form>
 
-                                        {% if row.status != 'Cancelled' %}
-                                            <form method="POST" action="/update_status" style="display:inline;">
-                                                <input type="hidden" name="item_num" value="{{ row.num }}">
-                                                <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
-                                                <input type="hidden" name="view_month" value="{{ view_month }}">
-                                                <input type="hidden" name="view_day" value="{{ view_day }}">
-                                                <input type="hidden" name="view_year" value="{{ view_year }}">
-                                                <input type="hidden" name="new_status" value="Cancelled">
-                                                <button type="submit" class="btn btn-small" style="background:var(--danger); color:white;">Cancel</button>
-                                            </form>
-                                        {% endif %}
+                                        <!-- Cancel Checkbox Form -->
+                                        <form method="POST" action="/update_status" style="margin:0;">
+                                            <input type="hidden" name="item_num" value="{{ row.num }}">
+                                            <input type="hidden" name="file_date" value="{{ view_year }}-{{ view_month }}-{{ view_day }}">
+                                            <input type="hidden" name="view_month" value="{{ view_month }}">
+                                            <input type="hidden" name="view_day" value="{{ view_day }}">
+                                            <input type="hidden" name="view_year" value="{{ view_year }}">
+                                            <input type="hidden" name="new_status" value="{% if row.status == 'Cancelled' %}Pending{% else %}Cancelled{% endif %}">
+                                            <label class="checkbox-label cancel-label">
+                                                <input type="checkbox" {% if row.status == 'Cancelled' %}checked{% endif %} onchange="this.form.submit()"> Cancel
+                                            </label>
+                                        </form>
                                     </div>
                                 </td>
                             </tr>
@@ -616,137 +691,165 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def home():
-    username = session.get('username')
-    msg = request.args.get('msg', '')
-    active_tab = request.args.get('tab', 'add')
+  username = session.get('username')
+  msg = request.args.get('msg', '')
+  active_tab = request.args.get('tab', 'add')
 
-    now = get_ph_time()
-    today_str = now.strftime("%Y-%m-%d")
-    today_date = now.strftime("%B %d, %Y")
+  now = get_ph_time()
+  today_str = now.strftime('%Y-%m-%d')
+  today_date = now.strftime('%B %d, %Y')
 
-    # Date selections setup
-    months = [
-        ("01", "January"), ("02", "February"), ("03", "March"), ("04", "April"),
-        ("05", "May"), ("06", "June"), ("07", "July"), ("08", "August"),
-        ("09", "September"), ("10", "October"), ("11", "November"), ("12", "December")
-    ]
-    days = [f"{d:02d}" for d in range(1, 32)]
-    years = [str(y) for y in range(2024, 2028)]
+  # Date selections setup
+  months = [
+      ('01', 'January'),
+      ('02', 'February'),
+      ('03', 'March'),
+      ('04', 'April'),
+      ('05', 'May'),
+      ('06', 'June'),
+      ('07', 'July'),
+      ('08', 'August'),
+      ('09', 'September'),
+      ('10', 'October'),
+      ('11', 'November'),
+      ('12', 'December'),
+  ]
+  days = [f'{d:02d}' for d in range(1, 32)]
+  years = [str(y) for y in range(2024, 2028)]
 
-    # Retrieval defaults
-    view_month = request.args.get('view_month', now.strftime("%m"))
-    view_day = request.args.get('view_day', now.strftime("%d"))
-    view_year = request.args.get('view_year', now.strftime("%Y"))
+  # Retrieval defaults
+  view_month = request.args.get('view_month', now.strftime('%m'))
+  view_day = request.args.get('view_day', now.strftime('%d'))
+  view_year = request.args.get('view_year', now.strftime('%Y'))
 
-    report_month = request.args.get('report_month', now.strftime("%m"))
-    report_year = request.args.get('report_year', now.strftime("%Y"))
+  report_month = request.args.get('report_month', now.strftime('%m'))
+  report_year = request.args.get('report_year', now.strftime('%Y'))
 
-    retrieved_items = []
-    report_data = {'total_sales': 0.0, 'total_items_sold': 0, 'total_cancelled': 0, 'total_pending': 0, 'file_count': 0}
+  retrieved_items = []
+  report_data = {
+      'total_sales': 0.0,
+      'total_items_sold': 0,
+      'total_cancelled': 0,
+      'total_pending': 0,
+      'file_count': 0,
+  }
 
-    if username:
-        # Load View Tab Items
-        target_file = get_user_file_by_date(username, f"{view_year}-{view_month}-{view_day}")
-        retrieved_items = read_user_items(target_file)
-
-        # Load Report Tab Data
-        report_data = get_monthly_report_data(username, report_year, report_month)
-
-    return render_template_string(
-        HTML_TEMPLATE,
-        username=username,
-        msg=msg,
-        active_tab=active_tab,
-        today_date=today_date,
-        today_str=today_str,
-        months=months,
-        days=days,
-        years=years,
-        view_month=view_month,
-        view_day=view_day,
-        view_year=view_year,
-        report_month=report_month,
-        report_year=report_year,
-        retrieved_items=retrieved_items,
-        report_data=report_data
+  if username:
+    # Load View Tab Items
+    target_file = get_user_file_by_date(
+        username, f'{view_year}-{view_month}-{view_day}'
     )
+    retrieved_items = read_user_items(target_file)
+
+    # Load Report Tab Data
+    report_data = get_monthly_report_data(username, report_year, report_month)
+
+  return render_template_string(
+      HTML_TEMPLATE,
+      username=username,
+      msg=msg,
+      active_tab=active_tab,
+      today_date=today_date,
+      today_str=today_str,
+      months=months,
+      days=days,
+      years=years,
+      view_month=view_month,
+      view_day=view_day,
+      view_year=view_year,
+      report_month=report_month,
+      report_year=report_year,
+      retrieved_items=retrieved_items,
+      report_data=report_data,
+  )
 
 
 @app.route('/login', methods=['POST'])
 def login():
-    username = request.form.get('username', '').strip()
-    if username:
-        session['username'] = username
-        filepath = get_user_file(username)
-        init_excel(filepath)
-    return redirect(url_for('home'))
+  username = request.form.get('username', '').strip()
+  if username:
+    session['username'] = username
+    filepath = get_user_file(username)
+    init_excel(filepath)
+  return redirect(url_for('home'))
 
 
 @app.route('/logout')
 def logout():
-    session.pop('username', None)
-    return redirect(url_for('home'))
+  session.pop('username', None)
+  return redirect(url_for('home'))
 
 
 @app.route('/add', methods=['POST'])
 def add_item():
-    username = session.get('username')
-    if not username:
-        return redirect(url_for('home'))
+  username = session.get('username')
+  if not username:
+    return redirect(url_for('home'))
 
-    code = request.form.get('code')
-    name = request.form.get('name')
-    item = request.form.get('item')
-    price = request.form.get('price')
+  code = request.form.get('code')
+  name = request.form.get('name')
+  item = request.form.get('item')
+  price = request.form.get('price')
 
-    filepath = get_user_file(username)
-    init_excel(filepath)
+  filepath = get_user_file(username)
+  init_excel(filepath)
 
-    wb = load_workbook(filepath)
-    ws = wb["Inventory"]
-    # Saved as Pending by default
-    ws.append([0, code, name, item, float(price), "Pending", "Mark Paid / Mark Cancelled"])
-    wb.save(filepath)
+  wb = load_workbook(filepath)
+  ws = wb['Inventory']
+  # Saved as Pending by default
+  ws.append([0, code, name, item, float(price), 'Pending'])
+  wb.save(filepath)
 
-    rebuild_and_format_excel(filepath)
+  rebuild_and_format_excel(filepath)
 
-    return redirect(url_for('home', msg=f"Saved: #{code} for {name} (Pending)!", tab='add'))
+  return redirect(
+      url_for('home', msg=f'Saved: #{code} for {name} (Pending)!', tab='add')
+  )
 
 
 @app.route('/update_status', methods=['POST'])
 def update_status():
-    username = session.get('username')
-    if not username:
-        return redirect(url_for('home'))
+  username = session.get('username')
+  if not username:
+    return redirect(url_for('home'))
 
-    item_num = request.form.get('item_num')
-    file_date = request.form.get('file_date')
-    new_status = request.form.get('new_status')
+  item_num = request.form.get('item_num')
+  file_date = request.form.get('file_date')
+  new_status = request.form.get('new_status')
 
-    view_month = request.form.get('view_month')
-    view_day = request.form.get('view_day')
-    view_year = request.form.get('view_year')
+  view_month = request.form.get('view_month')
+  view_day = request.form.get('view_day')
+  view_year = request.form.get('view_year')
 
-    filepath = get_user_file_by_date(username, file_date)
-    update_item_status_in_excel(filepath, item_num, new_status)
+  filepath = get_user_file_by_date(username, file_date)
+  update_item_status_in_excel(filepath, item_num, new_status)
 
-    return redirect(url_for('home', tab='view', view_month=view_month, view_day=view_day, view_year=view_year, msg=f"Item #{item_num} status updated to {new_status}!"))
+  return redirect(
+      url_for(
+          'home',
+          tab='view',
+          view_month=view_month,
+          view_day=view_day,
+          view_year=view_year,
+          msg=f'Item #{item_num} status updated to {new_status}!',
+      )
+  )
 
 
 @app.route('/download')
 def download():
-    username = session.get('username')
-    if not username:
-        return redirect(url_for('home'))
+  username = session.get('username')
+  if not username:
+    return redirect(url_for('home'))
 
-    date_str = request.args.get('date', get_ph_time().strftime("%Y-%m-%d"))
-    filepath = get_user_file_by_date(username, date_str)
+  date_str = request.args.get('date', get_ph_time().strftime('%Y-%m-%d'))
+  filepath = get_user_file_by_date(username, date_str)
 
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True)
-    return redirect(url_for('home', msg="File not found for that date."))
+  if os.path.exists(filepath):
+    return send_file(filepath, as_attachment=True)
+  return redirect(url_for('home', msg='File not found for that date.'))
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+  port = int(os.environ.get('PORT', 5000))
+  app.run(host='0.0.0.0', port=port)

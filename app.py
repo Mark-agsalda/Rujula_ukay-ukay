@@ -32,11 +32,9 @@ def get_db_connection():
         database=MYSQL_DB,
         port=MYSQL_PORT
     )
-    # Set the MySQL session timezone to Philippine Time (+08:00)
     cursor = conn.cursor()
     cursor.execute("SET time_zone = '+08:00';")
     cursor.close()
-    
     return conn
 
 def init_db():
@@ -126,14 +124,18 @@ HTML_TEMPLATE = '''
     <div class="header-bar">
         <h1>👕 Ukay-Ukay Live Inventory Tracker</h1>
         {% if has_excel %}
-            <a href="/export/excel?filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn btn-excel">📊 Export View to Excel</a>
+            <a href="/export/excel?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn btn-excel">📊 Export View to Excel</a>
         {% endif %}
     </div>
 
-    <!-- Date Filter Bar -->
+    <!-- Filter & Search Bar -->
     <div class="card">
-        <h3>🔍 Filter Past Records by Date</h3>
+        <h3>🔍 Search & Filter Records</h3>
         <form action="/" method="GET" class="filter-form">
+            <div class="form-group" style="flex: 1.5;">
+                <label>Search Buyer Name / Handle</label>
+                <input type="text" name="search_buyer" placeholder="e.g. Maria or @MariaClara" value="{{ search_buyer }}">
+            </div>
             <div class="form-group">
                 <label>Specific Date</label>
                 <input type="date" name="filter_date" value="{{ filter_date }}">
@@ -161,7 +163,7 @@ HTML_TEMPLATE = '''
                 <input type="number" name="filter_year" placeholder="e.g. 2026" value="{{ filter_year }}">
             </div>
             <div style="display: flex; gap: 6px;">
-                <button type="submit" class="btn btn-filter">Filter</button>
+                <button type="submit" class="btn btn-filter">Search</button>
                 <a href="/" class="btn-reset">Reset</a>
             </div>
         </form>
@@ -241,7 +243,7 @@ HTML_TEMPLATE = '''
                             <td>{{ item['buyer_name'] }}</td>
                             <td><span class="badge badge-{{ item['status'] }}">{{ item['status'] }}</span></td>
                             <td class="action-btns">
-                                <a href="/edit/{{ item['id'] }}" class="btn-sm btn-edit">Edit</a>
+                                <a href="/edit/{{ item['id'] }}?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-edit">Edit</a>
                                 <a href="/delete/{{ item['id'] }}" class="btn-sm btn-del" onclick="return confirm('Delete record?')">X</a>
                             </td>
                         </tr>
@@ -261,14 +263,17 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-def fetch_filtered_items(f_date, f_month, f_year):
-    """Utility function to build dynamic SQL queries based on date filters."""
+def fetch_filtered_items(search_buyer, f_date, f_month, f_year):
+    """Utility function to build dynamic SQL queries based on search and date filters."""
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
 
     query = "SELECT * FROM ukay_inventory WHERE 1=1"
     params = []
 
+    if search_buyer:
+        query += " AND buyer_name LIKE %s"
+        params.append(f"%{search_buyer.strip()}%")
     if f_date:
         query += " AND DATE(created_at) = %s"
         params.append(f_date)
@@ -288,11 +293,12 @@ def fetch_filtered_items(f_date, f_month, f_year):
 
 @app.route('/')
 def index():
+    search_buyer = request.args.get('search_buyer', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
 
-    items = fetch_filtered_items(filter_date, filter_month, filter_year)
+    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
     total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
 
     return render_template_string(
@@ -301,6 +307,7 @@ def index():
         total_val=total_val,
         edit_item=None,
         has_excel=HAS_OPENPYXL,
+        search_buyer=search_buyer,
         filter_date=filter_date,
         filter_month=filter_month,
         filter_year=filter_year
@@ -334,11 +341,12 @@ def edit_item(item_id):
     cursor.close()
     conn.close()
 
+    search_buyer = request.args.get('search_buyer', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
 
-    items = fetch_filtered_items(filter_date, filter_month, filter_year)
+    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
     total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
 
     return render_template_string(
@@ -347,6 +355,7 @@ def edit_item(item_id):
         total_val=total_val,
         edit_item=edit_item,
         has_excel=HAS_OPENPYXL,
+        search_buyer=search_buyer,
         filter_date=filter_date,
         filter_month=filter_month,
         filter_year=filter_year
@@ -387,11 +396,12 @@ def export_excel():
     if not HAS_OPENPYXL:
         return "openpyxl module is missing in requirements.txt", 500
 
+    search_buyer = request.args.get('search_buyer', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
 
-    items = fetch_filtered_items(filter_date, filter_month, filter_year)
+    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
 
     wb = openpyxl.Workbook()
     ws = wb.active

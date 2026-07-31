@@ -3,7 +3,6 @@ import tempfile
 from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
 import mysql.connector
-
 # Excel export support
 try:
     import openpyxl

@@ -3,6 +3,7 @@ import tempfile
 from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
 import mysql.connector
+
 # Excel export support
 try:
     import openpyxl
@@ -16,11 +17,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
 
 # MySQL Database Configuration
-# When running locally, localhost/127.0.0.1 with user 'root' is standard.
-# When deploying to Render, set environment variables or update these fields.
 MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
 MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
-MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', '')  # Update password here
+MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', '')
 MYSQL_DB = os.environ.get('MYSQL_DB', 'ukay_inventory')
 MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
 
@@ -38,7 +37,6 @@ def get_db_connection():
 def init_db():
     """Creates database and table if they do not exist."""
     try:
-        # First connection to ensure the database schema exists
         conn = mysql.connector.connect(
             host=MYSQL_HOST,
             user=MYSQL_USER,
@@ -51,7 +49,6 @@ def init_db():
         cursor.close()
         conn.close()
 
-        # Connect directly to the database to create the table
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
@@ -71,7 +68,6 @@ def init_db():
     except mysql.connector.Error as err:
         print(f"MySQL Connection/Init Error: {err}")
 
-# Auto-initialize database on startup
 with app.app_context():
     init_db()
 
@@ -90,13 +86,17 @@ HTML_TEMPLATE = '''
         h1 { margin: 0; color: #0f172a; font-size: 1.6rem; }
         .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
         @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
-        .card { background: var(--card); padding: 20px; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card { background: var(--card); padding: 20px; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 15px; }
         .form-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
         input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; font-size: 0.95rem; }
         button, .btn { background: var(--primary); color: white; border: none; padding: 10px; width: 100%; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.95rem; text-decoration: none; display: inline-block; text-align: center; box-sizing: border-box; }
         button:hover, .btn:hover { opacity: 0.9; }
         .btn-excel { background: #16a34a; width: auto; padding: 8px 16px; font-size: 0.85rem; }
+        .btn-filter { background: #475569; padding: 8px 12px; font-size: 0.85rem; }
+        .btn-reset { background: #94a3b8; padding: 8px 12px; font-size: 0.85rem; color: white; text-decoration: none; border-radius: 6px; }
+        .filter-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+        .filter-form .form-group { margin-bottom: 0; flex: 1; min-width: 130px; }
         .stats { display: flex; gap: 15px; margin-bottom: 15px; }
         .stat-box { background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 8px; flex: 1; text-align: center; }
         .stat-box .num { font-size: 1.4rem; font-weight: 700; color: #1e40af; }
@@ -112,6 +112,7 @@ HTML_TEMPLATE = '''
         .btn-sm { padding: 4px 8px; font-size: 0.75rem; width: auto; border-radius: 4px; text-decoration: none; }
         .btn-edit { background: #0284c7; color: white; }
         .btn-del { background: #ef4444; color: white; }
+        .date-col { font-size: 0.8rem; color: #64748b; }
     </style>
 </head>
 <body>
@@ -120,10 +121,47 @@ HTML_TEMPLATE = '''
     <div class="header-bar">
         <h1>👕 Ukay-Ukay Live Inventory Tracker</h1>
         {% if has_excel %}
-            <a href="/export/excel" class="btn btn-excel">📊 Export to Excel</a>
+            <a href="/export/excel?filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn btn-excel">📊 Export View to Excel</a>
         {% endif %}
     </div>
-    
+
+    <!-- Date Filter Bar -->
+    <div class="card">
+        <h3>🔍 Filter Past Records by Date</h3>
+        <form action="/" method="GET" class="filter-form">
+            <div class="form-group">
+                <label>Specific Date</label>
+                <input type="date" name="filter_date" value="{{ filter_date }}">
+            </div>
+            <div class="form-group">
+                <label>Month</label>
+                <select name="filter_month">
+                    <option value="">-- Any Month --</option>
+                    <option value="1" {% if filter_month == '1' %}selected{% endif %}>January</option>
+                    <option value="2" {% if filter_month == '2' %}selected{% endif %}>February</option>
+                    <option value="3" {% if filter_month == '3' %}selected{% endif %}>March</option>
+                    <option value="4" {% if filter_month == '4' %}selected{% endif %}>April</option>
+                    <option value="5" {% if filter_month == '5' %}selected{% endif %}>May</option>
+                    <option value="6" {% if filter_month == '6' %}selected{% endif %}>June</option>
+                    <option value="7" {% if filter_month == '7' %}selected{% endif %}>July</option>
+                    <option value="8" {% if filter_month == '8' %}selected{% endif %}>August</option>
+                    <option value="9" {% if filter_month == '9' %}selected{% endif %}>September</option>
+                    <option value="10" {% if filter_month == '10' %}selected{% endif %}>October</option>
+                    <option value="11" {% if filter_month == '11' %}selected{% endif %}>November</option>
+                    <option value="12" {% if filter_month == '12' %}selected{% endif %}>December</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Year</label>
+                <input type="number" name="filter_year" placeholder="e.g. 2026" value="{{ filter_year }}">
+            </div>
+            <div style="display: flex; gap: 6px;">
+                <button type="submit" class="btn btn-filter">Filter</button>
+                <a href="/" class="btn-reset">Reset</a>
+            </div>
+        </form>
+    </div>
+
     <div class="grid">
         <!-- Input / Edit Form -->
         <div class="card">
@@ -179,6 +217,7 @@ HTML_TEMPLATE = '''
                 <table>
                     <thead>
                         <tr>
+                            <th>Date Mined</th>
                             <th>Code</th>
                             <th>Description</th>
                             <th>Price</th>
@@ -190,6 +229,7 @@ HTML_TEMPLATE = '''
                     <tbody>
                         {% for item in items %}
                         <tr>
+                            <td class="date-col">{{ item['created_at'].strftime('%Y-%m-%d %H:%M') if item['created_at'] else 'N/A' }}</td>
                             <td><strong>{{ item['mine_code'] }}</strong></td>
                             <td>{{ item['item_description'] }}</td>
                             <td>₱{{ "%.2f"|format(item['price']) }}</td>
@@ -202,7 +242,7 @@ HTML_TEMPLATE = '''
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">No items mined yet. Start adding items!</td>
+                            <td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">No items found for this selection.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -216,16 +256,50 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-@app.route('/')
-def index():
+def fetch_filtered_items(f_date, f_month, f_year):
+    """Utility function to build dynamic SQL queries based on date filters."""
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute('SELECT * FROM ukay_inventory ORDER BY id DESC')
+
+    query = "SELECT * FROM ukay_inventory WHERE 1=1"
+    params = []
+
+    if f_date:
+        query += " AND DATE(created_at) = %s"
+        params.append(f_date)
+    if f_month:
+        query += " AND MONTH(created_at) = %s"
+        params.append(f_month)
+    if f_year:
+        query += " AND YEAR(created_at) = %s"
+        params.append(f_year)
+
+    query += " ORDER BY id DESC"
+    cursor.execute(query, tuple(params))
     items = cursor.fetchall()
-    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
     cursor.close()
     conn.close()
-    return render_template_string(HTML_TEMPLATE, items=items, total_val=total_val, edit_item=None, has_excel=HAS_OPENPYXL)
+    return items
+
+@app.route('/')
+def index():
+    filter_date = request.args.get('filter_date', '')
+    filter_month = request.args.get('filter_month', '')
+    filter_year = request.args.get('filter_year', '')
+
+    items = fetch_filtered_items(filter_date, filter_month, filter_year)
+    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
+
+    return render_template_string(
+        HTML_TEMPLATE,
+        items=items,
+        total_val=total_val,
+        edit_item=None,
+        has_excel=HAS_OPENPYXL,
+        filter_date=filter_date,
+        filter_month=filter_month,
+        filter_year=filter_year
+    )
 
 @app.route('/add', methods=['POST'])
 def add_item():
@@ -252,13 +326,26 @@ def edit_item(item_id):
     cursor = conn.cursor(dictionary=True)
     cursor.execute('SELECT * FROM ukay_inventory WHERE id = %s', (item_id,))
     edit_item = cursor.fetchone()
-    
-    cursor.execute('SELECT * FROM ukay_inventory ORDER BY id DESC')
-    items = cursor.fetchall()
-    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
     cursor.close()
     conn.close()
-    return render_template_string(HTML_TEMPLATE, items=items, total_val=total_val, edit_item=edit_item, has_excel=HAS_OPENPYXL)
+
+    filter_date = request.args.get('filter_date', '')
+    filter_month = request.args.get('filter_month', '')
+    filter_year = request.args.get('filter_year', '')
+
+    items = fetch_filtered_items(filter_date, filter_month, filter_year)
+    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
+
+    return render_template_string(
+        HTML_TEMPLATE,
+        items=items,
+        total_val=total_val,
+        edit_item=edit_item,
+        has_excel=HAS_OPENPYXL,
+        filter_date=filter_date,
+        filter_month=filter_month,
+        filter_year=filter_year
+    )
 
 @app.route('/update/<int:item_id>', methods=['POST'])
 def update_item(item_id):
@@ -295,18 +382,17 @@ def export_excel():
     if not HAS_OPENPYXL:
         return "openpyxl module is missing in requirements.txt", 500
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute('SELECT * FROM ukay_inventory ORDER BY id DESC')
-    items = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    filter_date = request.args.get('filter_date', '')
+    filter_month = request.args.get('filter_month', '')
+    filter_year = request.args.get('filter_year', '')
+
+    items = fetch_filtered_items(filter_date, filter_month, filter_year)
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Ukay Inventory"
 
-    headers = ["ID", "Mine Code", "Description", "Price (PHP)", "Buyer Name", "Status", "Date Mined"]
+    headers = ["ID", "Date Mined", "Mine Code", "Description", "Price (PHP)", "Buyer Name", "Status"]
     ws.append(headers)
 
     header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
@@ -321,12 +407,12 @@ def export_excel():
     for item in items:
         ws.append([
             item['id'],
+            str(item['created_at']),
             item['mine_code'],
             item['item_description'],
             float(item['price']),
             item['buyer_name'],
-            item['status'],
-            str(item['created_at'])
+            item['status']
         ])
 
     for col in ws.columns:

@@ -1,13 +1,13 @@
 import os
-import sqlite3
 import tempfile
 from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
+import mysql.connector
 
 # Excel export support
 try:
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     HAS_OPENPYXL = True
 except ImportError:
@@ -15,32 +15,64 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ukay_live_secret_key_2026')
-DB_NAME = "ukay_inventory.db"
+
+# MySQL Database Configuration
+# When running locally, localhost/127.0.0.1 with user 'root' is standard.
+# When deploying to Render, set environment variables or update these fields.
+MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
+MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
+MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', '')  # Update password here
+MYSQL_DB = os.environ.get('MYSQL_DB', 'ukay_inventory')
+MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+    """Connects to MySQL server and database."""
+    conn = mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DB,
+        port=MYSQL_PORT
+    )
     return conn
 
 def init_db():
-    """Initializes the database table if it doesn't exist."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ukay_inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mine_code TEXT NOT NULL,
-            item_description TEXT NOT NULL,
-            price REAL NOT NULL,
-            buyer_name TEXT NOT NULL,
-            status TEXT DEFAULT 'Mined',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    """Creates database and table if they do not exist."""
+    try:
+        # First connection to ensure the database schema exists
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            port=MYSQL_PORT
         )
-    ''')
-    conn.commit()
-    conn.close()
+        cursor = conn.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DB}`")
+        conn.commit()
+        cursor.close()
+        conn.close()
 
-# Auto-initialize database on server startup
+        # Connect directly to the database to create the table
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ukay_inventory (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                mine_code VARCHAR(50) NOT NULL,
+                item_description VARCHAR(255) NOT NULL,
+                price DECIMAL(10,2) NOT NULL,
+                buyer_name VARCHAR(100) NOT NULL,
+                status VARCHAR(50) DEFAULT 'Mined',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error as err:
+        print(f"MySQL Connection/Init Error: {err}")
+
+# Auto-initialize database on startup
 with app.app_context():
     init_db()
 
@@ -188,8 +220,11 @@ HTML_TEMPLATE = '''
 @app.route('/')
 def index():
     conn = get_db_connection()
-    items = conn.execute('SELECT * FROM ukay_inventory ORDER BY id DESC').fetchall()
-    total_val = sum(item['price'] for item in items if item['status'] != 'Cancelled')
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT * FROM ukay_inventory ORDER BY id DESC')
+    items = cursor.fetchall()
+    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
+    cursor.close()
     conn.close()
     return render_template_string(HTML_TEMPLATE, items=items, total_val=total_val, edit_item=None, has_excel=HAS_OPENPYXL)
 
@@ -202,20 +237,27 @@ def add_item():
     status = request.form['status']
 
     conn = get_db_connection()
-    conn.execute('''
+    cursor = conn.cursor()
+    cursor.execute('''
         INSERT INTO ukay_inventory (mine_code, item_description, price, buyer_name, status)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
     ''', (code, desc, price, buyer, status))
     conn.commit()
+    cursor.close()
     conn.close()
     return redirect(url_for('index'))
 
 @app.route('/edit/<int:item_id>')
 def edit_item(item_id):
     conn = get_db_connection()
-    edit_item = conn.execute('SELECT * FROM ukay_inventory WHERE id = ?', (item_id,)).fetchone()
-    items = conn.execute('SELECT * FROM ukay_inventory ORDER BY id DESC').fetchall()
-    total_val = sum(item['price'] for item in items if item['status'] != 'Cancelled')
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT * FROM ukay_inventory WHERE id = %s', (item_id,))
+    edit_item = cursor.fetchone()
+    
+    cursor.execute('SELECT * FROM ukay_inventory ORDER BY id DESC')
+    items = cursor.fetchall()
+    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
+    cursor.close()
     conn.close()
     return render_template_string(HTML_TEMPLATE, items=items, total_val=total_val, edit_item=edit_item, has_excel=HAS_OPENPYXL)
 
@@ -228,20 +270,24 @@ def update_item(item_id):
     status = request.form['status']
 
     conn = get_db_connection()
-    conn.execute('''
+    cursor = conn.cursor()
+    cursor.execute('''
         UPDATE ukay_inventory
-        SET mine_code=?, item_description=?, price=?, buyer_name=?, status=?
-        WHERE id=?
+        SET mine_code=%s, item_description=%s, price=%s, buyer_name=%s, status=%s
+        WHERE id=%s
     ''', (code, desc, price, buyer, status, item_id))
     conn.commit()
+    cursor.close()
     conn.close()
     return redirect(url_for('index'))
 
 @app.route('/delete/<int:item_id>')
 def delete_item(item_id):
     conn = get_db_connection()
-    conn.execute('DELETE FROM ukay_inventory WHERE id = ?', (item_id,))
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM ukay_inventory WHERE id = %s', (item_id,))
     conn.commit()
+    cursor.close()
     conn.close()
     return redirect(url_for('index'))
 
@@ -251,14 +297,16 @@ def export_excel():
         return "openpyxl module is missing in requirements.txt", 500
 
     conn = get_db_connection()
-    items = conn.execute('SELECT * FROM ukay_inventory ORDER BY id DESC').fetchall()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT * FROM ukay_inventory ORDER BY id DESC')
+    items = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Ukay Inventory"
 
-    # Header styling
     headers = ["ID", "Mine Code", "Description", "Price (PHP)", "Buyer Name", "Status", "Date Mined"]
     ws.append(headers)
 
@@ -271,25 +319,22 @@ def export_excel():
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
-    # Rows
     for item in items:
         ws.append([
             item['id'],
             item['mine_code'],
             item['item_description'],
-            item['price'],
+            float(item['price']),
             item['buyer_name'],
             item['status'],
-            item['created_at']
+            str(item['created_at'])
         ])
 
-    # Auto-fit columns
     for col in ws.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = get_column_letter(col[0].column)
         ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
-    # Save to temp directory and serve file
     temp_dir = tempfile.gettempdir()
     file_path = os.path.join(temp_dir, "ukay_inventory_export.xlsx")
     wb.save(file_path)

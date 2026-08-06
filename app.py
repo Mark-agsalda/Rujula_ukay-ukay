@@ -103,9 +103,39 @@ HTML_TEMPLATE = '''
         .stats { display: flex; gap: 15px; margin-bottom: 15px; }
         .stat-box { background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 8px; flex: 1; text-align: center; }
         .stat-box .num { font-size: 1.4rem; font-weight: 700; color: #1e40af; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
+        
+        /* Fixed Height & Scrollable Table Container */
+        .table-container {
+            max-height: 480px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+        
+        /* Scrollbar Styling */
+        .table-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .table-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--border); }
-        th { background: #f1f5f9; font-weight: 600; }
+        th { 
+            background: #f1f5f9; 
+            font-weight: 600; 
+            position: sticky; 
+            top: 0; 
+            z-index: 2; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
         .badge { padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
         .badge-Mined { background: #fef3c7; color: #92400e; }
         .badge-Paid { background: #dcfce7; color: #166534; }
@@ -219,48 +249,50 @@ HTML_TEMPLATE = '''
 
             <div class="card">
                 <h3>📋 Recorded Items</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date Mined</th>
-                            <th>Code</th>
-                            <th>Description</th>
-                            <th>Price</th>
-                            <th>Buyer</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventory-tbody">
-                        {% for item in items %}
-                        <tr id="row-{{ item['id'] }}">
-                            <td class="date-col">{{ item['created_at'].strftime('%Y-%m-%d %H:%M') if item['created_at'] else 'N/A' }}</td>
-                            <td><strong>{{ item['mine_code'] }}</strong></td>
-                            <td>{{ item['item_description'] }}</td>
-                            <td>₱{{ "%.2f"|format(item['price']) }}</td>
-                            <td>{{ item['buyer_name'] }}</td>
-                            <td><span class="badge badge-{{ item['status'] }}">{{ item['status'] }}</span></td>
-                            <td class="action-btns">
-                                {% if item['status'] == 'Paid' %}
-                                    <span class="btn-sm btn-paid btn-disabled">Paid ✓</span>
-                                    <span class="btn-sm btn-cancel btn-disabled" title="Paid items cannot be cancelled">Cancel</span>
-                                {% elif item['status'] == 'Cancelled' %}
-                                    <button type="button" onclick="updateStatus({{ item['id'] }}, 'Paid')" class="btn-sm btn-paid">Paid</button>
-                                    <span class="btn-sm btn-cancel btn-disabled">Cancelled</span>
-                                {% else %}
-                                    <button type="button" onclick="updateStatus({{ item['id'] }}, 'Paid')" class="btn-sm btn-paid">Paid</button>
-                                    <button type="button" onclick="updateStatus({{ item['id'] }}, 'Cancelled')" class="btn-sm btn-cancel">Cancel</button>
-                                {% endif %}
-                                <button type="button" onclick="deleteItem({{ item['id'] }})" class="btn-sm btn-del">X</button>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr id="no-items-row">
-                            <td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">No items found for this selection.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <div class="table-container" id="table-scroll-box">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date Mined</th>
+                                <th>Code</th>
+                                <th>Description</th>
+                                <th>Price</th>
+                                <th>Buyer</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventory-tbody">
+                            {% for item in items %}
+                            <tr id="row-{{ item['id'] }}">
+                                <td class="date-col">{{ item['created_at'].strftime('%Y-%m-%d %H:%M') if item['created_at'] else 'N/A' }}</td>
+                                <td><strong>{{ item['mine_code'] }}</strong></td>
+                                <td>{{ item['item_description'] }}</td>
+                                <td>₱{{ "%.2f"|format(item['price']) }}</td>
+                                <td>{{ item['buyer_name'] }}</td>
+                                <td><span class="badge badge-{{ item['status'] }}">{{ item['status'] }}</span></td>
+                                <td class="action-btns">
+                                    {% if item['status'] == 'Paid' %}
+                                        <span class="btn-sm btn-paid btn-disabled">Paid ✓</span>
+                                        <span class="btn-sm btn-cancel btn-disabled" title="Paid items cannot be cancelled">Cancel</span>
+                                    {% elif item['status'] == 'Cancelled' %}
+                                        <button type="button" onclick="updateStatus({{ item['id'] }}, 'Paid')" class="btn-sm btn-paid">Paid</button>
+                                        <span class="btn-sm btn-cancel btn-disabled">Cancelled</span>
+                                    {% else %}
+                                        <button type="button" onclick="updateStatus({{ item['id'] }}, 'Paid')" class="btn-sm btn-paid">Paid</button>
+                                        <button type="button" onclick="updateStatus({{ item['id'] }}, 'Cancelled')" class="btn-sm btn-cancel">Cancel</button>
+                                    {% endif %}
+                                    <button type="button" onclick="deleteItem({{ item['id'] }})" class="btn-sm btn-del">X</button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr id="no-items-row">
+                                <td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">No items found for this selection.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -397,6 +429,10 @@ HTML_TEMPLATE = '''
 
                 const tbody = document.getElementById('inventory-tbody');
                 tbody.insertBefore(tr, tbody.firstChild);
+
+                // Auto-scroll inside table container to show the newest added item at top
+                const scrollBox = document.getElementById('table-scroll-box');
+                scrollBox.scrollTop = 0;
 
                 this.reset();
                 document.getElementById('input_mine_code').focus();

@@ -111,10 +111,12 @@ HTML_TEMPLATE = '''
         .badge-Paid { background: #dcfce7; color: #166534; }
         .badge-Shipped { background: #e0e7ff; color: #3730a3; }
         .badge-Cancelled { background: #fee2e2; color: #991b1b; }
-        .action-btns { display: flex; gap: 6px; }
-        .btn-sm { padding: 4px 8px; font-size: 0.75rem; width: auto; border-radius: 4px; text-decoration: none; }
-        .btn-edit { background: #0284c7; color: white; }
-        .btn-del { background: #ef4444; color: white; }
+        .action-btns { display: flex; gap: 6px; align-items: center; }
+        .btn-sm { padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; text-decoration: none; border: none; font-weight: 600; display: inline-block; cursor: pointer; }
+        .btn-paid { background: #16a34a; color: white; }
+        .btn-cancel { background: #dc2626; color: white; }
+        .btn-del { background: #64748b; color: white; }
+        .btn-disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; pointer-events: none; opacity: 0.7; }
         .date-col { font-size: 0.8rem; color: #64748b; }
     </style>
 </head>
@@ -170,39 +172,35 @@ HTML_TEMPLATE = '''
     </div>
 
     <div class="grid">
-        <!-- Input / Edit Form -->
+        <!-- Input Form -->
         <div class="card">
-            <h3>{% if edit_item %}✏️ Edit Record{% else %}⚡ Quick Add Mined Item{% endif %}</h3>
-            <form action="{% if edit_item %}/update/{{ edit_item['id'] }}{% else %}/add{% endif %}" method="POST">
+            <h3>⚡ Quick Add Mined Item</h3>
+            <form action="/add" method="POST">
                 <div class="form-group">
                     <label>Mine Code / Tag #</label>
-                    <input type="text" name="mine_code" placeholder="e.g. M01" value="{{ edit_item['mine_code'] if edit_item else '' }}" required autofocus>
+                    <input type="text" name="mine_code" placeholder="e.g. M01" required autofocus>
                 </div>
                 <div class="form-group">
                     <label>Item Description</label>
-                    <input type="text" name="item_description" placeholder="e.g. Denim Jacket" value="{{ edit_item['item_description'] if edit_item else '' }}" required>
+                    <input type="text" name="item_description" placeholder="e.g. Denim Jacket" required>
                 </div>
                 <div class="form-group">
                     <label>Price (₱)</label>
-                    <input type="number" step="0.01" name="price" placeholder="150" value="{{ edit_item['price'] if edit_item else '' }}" required>
+                    <input type="number" step="0.01" name="price" placeholder="150" required>
                 </div>
                 <div class="form-group">
                     <label>Buyer Name / Handle</label>
-                    <input type="text" name="buyer_name" placeholder="e.g. @MariaClara" value="{{ edit_item['buyer_name'] if edit_item else '' }}" required>
+                    <input type="text" name="buyer_name" placeholder="e.g. @MariaClara" required>
                 </div>
                 <div class="form-group">
-                    <label>Status</label>
+                    <label>Initial Status</label>
                     <select name="status">
-                        <option value="Mined" {% if edit_item and edit_item['status']=='Mined' %}selected{% endif %}>Mined (Unpaid)</option>
-                        <option value="Paid" {% if edit_item and edit_item['status']=='Paid' %}selected{% endif %}>Paid</option>
-                        <option value="Shipped" {% if edit_item and edit_item['status']=='Shipped' %}selected{% endif %}>Shipped</option>
-                        <option value="Cancelled" {% if edit_item and edit_item['status']=='Cancelled' %}selected{% endif %}>Cancelled</option>
+                        <option value="Mined">Mined (Unpaid)</option>
+                        <option value="Paid">Paid</option>
+                        <option value="Shipped">Shipped</option>
                     </select>
                 </div>
-                <button type="submit">{% if edit_item %}Update Record{% else %}Save Mined Item{% endif %}</button>
-                {% if edit_item %}
-                    <a href="/" style="display:block; text-align:center; margin-top:8px; font-size:0.85rem; color:#64748b; text-decoration:none;">Cancel Edit</a>
-                {% endif %}
+                <button type="submit">Save Mined Item</button>
             </form>
         </div>
 
@@ -243,7 +241,16 @@ HTML_TEMPLATE = '''
                             <td>{{ item['buyer_name'] }}</td>
                             <td><span class="badge badge-{{ item['status'] }}">{{ item['status'] }}</span></td>
                             <td class="action-btns">
-                                <a href="/edit/{{ item['id'] }}?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-edit">Edit</a>
+                                {% if item['status'] == 'Paid' %}
+                                    <span class="btn-sm btn-paid btn-disabled">Paid ✓</span>
+                                    <span class="btn-sm btn-cancel btn-disabled" title="Paid items cannot be cancelled">Cancel</span>
+                                {% elif item['status'] == 'Cancelled' %}
+                                    <a href="/set_status/{{ item['id'] }}/Paid?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-paid">Paid</a>
+                                    <span class="btn-sm btn-cancel btn-disabled">Cancelled</span>
+                                {% else %}
+                                    <a href="/set_status/{{ item['id'] }}/Paid?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-paid">Paid</a>
+                                    <a href="/set_status/{{ item['id'] }}/Cancelled?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-cancel" onclick="return confirm('Are you sure you want to cancel this record?')">Cancel</a>
+                                {% endif %}
                                 <a href="/delete/{{ item['id'] }}" class="btn-sm btn-del" onclick="return confirm('Delete record?')">X</a>
                             </td>
                         </tr>
@@ -305,7 +312,6 @@ def index():
         HTML_TEMPLATE,
         items=items,
         total_val=total_val,
-        edit_item=None,
         has_excel=HAS_OPENPYXL,
         search_buyer=search_buyer,
         filter_date=filter_date,
@@ -332,54 +338,32 @@ def add_item():
     conn.close()
     return redirect(url_for('index'))
 
-@app.route('/edit/<int:item_id>')
-def edit_item(item_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute('SELECT * FROM ukay_inventory WHERE id = %s', (item_id,))
-    edit_item = cursor.fetchone()
-    cursor.close()
-    conn.close()
-
+@app.route('/set_status/<int:item_id>/<string:new_status>')
+def set_status(item_id, new_status):
     search_buyer = request.args.get('search_buyer', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
 
-    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
-    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
-
-    return render_template_string(
-        HTML_TEMPLATE,
-        items=items,
-        total_val=total_val,
-        edit_item=edit_item,
-        has_excel=HAS_OPENPYXL,
-        search_buyer=search_buyer,
-        filter_date=filter_date,
-        filter_month=filter_month,
-        filter_year=filter_year
-    )
-
-@app.route('/update/<int:item_id>', methods=['POST'])
-def update_item(item_id):
-    code = request.form['mine_code']
-    desc = request.form['item_description']
-    price = float(request.form['price'])
-    buyer = request.form['buyer_name']
-    status = request.form['status']
-
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE ukay_inventory
-        SET mine_code=%s, item_description=%s, price=%s, buyer_name=%s, status=%s
-        WHERE id=%s
-    ''', (code, desc, price, buyer, status, item_id))
-    conn.commit()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT status FROM ukay_inventory WHERE id = %s', (item_id,))
+    item = cursor.fetchone()
+
+    if item:
+        # Backend Safety Rule: If item is already Paid, it CANNOT be changed to Cancelled
+        if item['status'] == 'Paid' and new_status == 'Cancelled':
+            cursor.close()
+            conn.close()
+            return redirect(url_for('index', search_buyer=search_buyer, filter_date=filter_date, filter_month=filter_month, filter_year=filter_year))
+
+        if new_status in ['Paid', 'Cancelled', 'Mined', 'Shipped']:
+            cursor.execute('UPDATE ukay_inventory SET status = %s WHERE id = %s', (new_status, item_id))
+            conn.commit()
+
     cursor.close()
     conn.close()
-    return redirect(url_for('index'))
+    return redirect(url_for('index', search_buyer=search_buyer, filter_date=filter_date, filter_month=filter_month, filter_year=filter_year))
 
 @app.route('/delete/<int:item_id>')
 def delete_item(item_id):

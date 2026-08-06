@@ -1,7 +1,7 @@
 import os
 import tempfile
 from datetime import datetime
-from flask import Flask, render_template_string, request, redirect, url_for, send_file
+from flask import Flask, render_template_string, request, redirect, url_for, send_file, jsonify
 import mysql.connector
 
 # Excel export support
@@ -136,15 +136,15 @@ HTML_TEMPLATE = '''
         <form action="/" method="GET" class="filter-form">
             <div class="form-group" style="flex: 1.5;">
                 <label>Search Buyer Name / Handle</label>
-                <input type="text" name="search_buyer" placeholder="e.g. Maria or @MariaClara" value="{{ search_buyer }}">
+                <input type="text" name="search_buyer" id="search_buyer" placeholder="e.g. Maria or @MariaClara" value="{{ search_buyer }}">
             </div>
             <div class="form-group">
                 <label>Specific Date</label>
-                <input type="date" name="filter_date" value="{{ filter_date }}">
+                <input type="date" name="filter_date" id="filter_date" value="{{ filter_date }}">
             </div>
             <div class="form-group">
                 <label>Month</label>
-                <select name="filter_month">
+                <select name="filter_month" id="filter_month">
                     <option value="">-- Any Month --</option>
                     <option value="1" {% if filter_month == '1' %}selected{% endif %}>January</option>
                     <option value="2" {% if filter_month == '2' %}selected{% endif %}>February</option>
@@ -162,7 +162,7 @@ HTML_TEMPLATE = '''
             </div>
             <div class="form-group">
                 <label>Year</label>
-                <input type="number" name="filter_year" placeholder="e.g. 2026" value="{{ filter_year }}">
+                <input type="number" name="filter_year" id="filter_year" placeholder="e.g. 2026" value="{{ filter_year }}">
             </div>
             <div style="display: flex; gap: 6px;">
                 <button type="submit" class="btn btn-filter">Search</button>
@@ -175,10 +175,10 @@ HTML_TEMPLATE = '''
         <!-- Input Form -->
         <div class="card">
             <h3>⚡ Quick Add Mined Item</h3>
-            <form action="/add" method="POST">
+            <form id="add-form">
                 <div class="form-group">
                     <label>Mine Code / Tag #</label>
-                    <input type="text" name="mine_code" placeholder="e.g. M01" required autofocus>
+                    <input type="text" name="mine_code" id="input_mine_code" placeholder="e.g. M01" required autofocus>
                 </div>
                 <div class="form-group">
                     <label>Item Description</label>
@@ -200,7 +200,7 @@ HTML_TEMPLATE = '''
                         <option value="Shipped">Shipped</option>
                     </select>
                 </div>
-                <button type="submit">Save Mined Item</button>
+                <button type="submit" id="btn-save">Save Mined Item</button>
             </form>
         </div>
 
@@ -209,11 +209,11 @@ HTML_TEMPLATE = '''
             <div class="stats">
                 <div class="stat-box">
                     <div>Total Items</div>
-                    <div class="num">{{ items|length }}</div>
+                    <div class="num" id="stat-total-items">{{ items|length }}</div>
                 </div>
                 <div class="stat-box">
                     <div>Total Revenue</div>
-                    <div class="num">₱{{ "%.2f"|format(total_val) }}</div>
+                    <div class="num" id="stat-total-val">₱{{ "%.2f"|format(total_val) }}</div>
                 </div>
             </div>
 
@@ -231,9 +231,9 @@ HTML_TEMPLATE = '''
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="inventory-tbody">
                         {% for item in items %}
-                        <tr>
+                        <tr id="row-{{ item['id'] }}">
                             <td class="date-col">{{ item['created_at'].strftime('%Y-%m-%d %H:%M') if item['created_at'] else 'N/A' }}</td>
                             <td><strong>{{ item['mine_code'] }}</strong></td>
                             <td>{{ item['item_description'] }}</td>
@@ -245,17 +245,17 @@ HTML_TEMPLATE = '''
                                     <span class="btn-sm btn-paid btn-disabled">Paid ✓</span>
                                     <span class="btn-sm btn-cancel btn-disabled" title="Paid items cannot be cancelled">Cancel</span>
                                 {% elif item['status'] == 'Cancelled' %}
-                                    <a href="/set_status/{{ item['id'] }}/Paid?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-paid">Paid</a>
+                                    <button type="button" onclick="updateStatus({{ item['id'] }}, 'Paid')" class="btn-sm btn-paid">Paid</button>
                                     <span class="btn-sm btn-cancel btn-disabled">Cancelled</span>
                                 {% else %}
-                                    <a href="/set_status/{{ item['id'] }}/Paid?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-paid">Paid</a>
-                                    <a href="/set_status/{{ item['id'] }}/Cancelled?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn-sm btn-cancel" onclick="return confirm('Are you sure you want to cancel this record?')">Cancel</a>
+                                    <button type="button" onclick="updateStatus({{ item['id'] }}, 'Paid')" class="btn-sm btn-paid">Paid</button>
+                                    <button type="button" onclick="updateStatus({{ item['id'] }}, 'Cancelled')" class="btn-sm btn-cancel">Cancel</button>
                                 {% endif %}
-                                <a href="/delete/{{ item['id'] }}" class="btn-sm btn-del" onclick="return confirm('Delete record?')">X</a>
+                                <button type="button" onclick="deleteItem({{ item['id'] }})" class="btn-sm btn-del">X</button>
                             </td>
                         </tr>
                         {% else %}
-                        <tr>
+                        <tr id="no-items-row">
                             <td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">No items found for this selection.</td>
                         </tr>
                         {% endfor %}
@@ -265,6 +265,148 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 </div>
+
+<script>
+    function escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function getQueryParams() {
+        const params = new URLSearchParams();
+        params.append('search_buyer', document.getElementById('search_buyer').value);
+        params.append('filter_date', document.getElementById('filter_date').value);
+        params.append('filter_month', document.getElementById('filter_month').value);
+        params.append('filter_year', document.getElementById('filter_year').value);
+        return params.toString();
+    }
+
+    function renderActionButtons(id, status) {
+        let html = '';
+        if (status === 'Paid') {
+            html += `<span class="btn-sm btn-paid btn-disabled">Paid ✓</span> `;
+            html += `<span class="btn-sm btn-cancel btn-disabled" title="Paid items cannot be cancelled">Cancel</span> `;
+        } else if (status === 'Cancelled') {
+            html += `<button type="button" onclick="updateStatus(${id}, 'Paid')" class="btn-sm btn-paid">Paid</button> `;
+            html += `<span class="btn-sm btn-cancel btn-disabled">Cancelled</span> `;
+        } else {
+            html += `<button type="button" onclick="updateStatus(${id}, 'Paid')" class="btn-sm btn-paid">Paid</button> `;
+            html += `<button type="button" onclick="updateStatus(${id}, 'Cancelled')" class="btn-sm btn-cancel">Cancel</button> `;
+        }
+        html += `<button type="button" onclick="deleteItem(${id})" class="btn-sm btn-del">X</button>`;
+        return html;
+    }
+
+    function updateStats(totalItems, totalVal) {
+        document.getElementById('stat-total-items').textContent = totalItems;
+        document.getElementById('stat-total-val').textContent = '₱' + parseFloat(totalVal).toFixed(2);
+    }
+
+    // Update Status without refreshing page
+    async function updateStatus(itemId, newStatus) {
+        if (newStatus === 'Cancelled' && !confirm('Are you sure you want to cancel this record?')) {
+            return;
+        }
+
+        try {
+            const query = getQueryParams();
+            const res = await fetch(`/set_status/${itemId}/${newStatus}?${query}`, { method: 'POST' });
+            const data = await res.json();
+
+            if (data.success) {
+                const row = document.getElementById(`row-${itemId}`);
+                if (row) {
+                    const badge = row.querySelector('.badge');
+                    badge.className = `badge badge-${data.new_status}`;
+                    badge.textContent = data.new_status;
+
+                    const actionTd = row.querySelector('.action-btns');
+                    actionTd.innerHTML = renderActionButtons(data.item_id, data.new_status);
+                }
+                updateStats(data.total_items, data.total_val);
+            } else if (data.message) {
+                alert(data.message);
+            }
+        } catch (err) {
+            console.error('Error updating status:', err);
+        }
+    }
+
+    // Delete item without refreshing page
+    async function deleteItem(itemId) {
+        if (!confirm('Delete record?')) return;
+
+        try {
+            const query = getQueryParams();
+            const res = await fetch(`/delete/${itemId}?${query}`, { method: 'POST' });
+            const data = await res.json();
+
+            if (data.success) {
+                const row = document.getElementById(`row-${itemId}`);
+                if (row) row.remove();
+
+                const tbody = document.getElementById('inventory-tbody');
+                if (tbody.children.length === 0) {
+                    tbody.innerHTML = `
+                        <tr id="no-items-row">
+                            <td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">No items found for this selection.</td>
+                        </tr>
+                    `;
+                }
+                updateStats(data.total_items, data.total_val);
+            }
+        } catch (err) {
+            console.error('Error deleting item:', err);
+        }
+    }
+
+    // Submit Add Form without refreshing page
+    document.getElementById('add-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const query = getQueryParams();
+
+        try {
+            const res = await fetch(`/add?${query}`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                const noItemsRow = document.getElementById('no-items-row');
+                if (noItemsRow) noItemsRow.remove();
+
+                const item = data.item;
+                const tr = document.createElement('tr');
+                tr.id = `row-${item.id}`;
+                tr.innerHTML = `
+                    <td class="date-col">${escapeHtml(item.created_at)}</td>
+                    <td><strong>${escapeHtml(item.mine_code)}</strong></td>
+                    <td>${escapeHtml(item.item_description)}</td>
+                    <td>₱${parseFloat(item.price).toFixed(2)}</td>
+                    <td>${escapeHtml(item.buyer_name)}</td>
+                    <td><span class="badge badge-${item.status}">${item.status}</span></td>
+                    <td class="action-btns">${renderActionButtons(item.id, item.status)}</td>
+                `;
+
+                const tbody = document.getElementById('inventory-tbody');
+                tbody.insertBefore(tr, tbody.firstChild);
+
+                this.reset();
+                document.getElementById('input_mine_code').focus();
+                updateStats(data.total_items, data.total_val);
+            }
+        } catch (err) {
+            console.error('Error adding item:', err);
+        }
+    });
+</script>
 
 </body>
 </html>
@@ -298,6 +440,11 @@ def fetch_filtered_items(search_buyer, f_date, f_month, f_year):
     conn.close()
     return items
 
+def get_stats(search_buyer, filter_date, filter_month, filter_year):
+    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
+    total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
+    return len(items), total_val
+
 @app.route('/')
 def index():
     search_buyer = request.args.get('search_buyer', '')
@@ -327,18 +474,44 @@ def add_item():
     buyer = request.form['buyer_name']
     status = request.form['status']
 
+    search_buyer = request.args.get('search_buyer', '')
+    filter_date = request.args.get('filter_date', '')
+    filter_month = request.args.get('filter_month', '')
+    filter_year = request.args.get('filter_year', '')
+
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute('''
         INSERT INTO ukay_inventory (mine_code, item_description, price, buyer_name, status)
         VALUES (%s, %s, %s, %s, %s)
     ''', (code, desc, price, buyer, status))
     conn.commit()
+
+    new_id = cursor.lastrowid
+    cursor.execute('SELECT created_at FROM ukay_inventory WHERE id = %s', (new_id,))
+    row = cursor.fetchone()
     cursor.close()
     conn.close()
-    return redirect(url_for('index'))
 
-@app.route('/set_status/<int:item_id>/<string:new_status>')
+    created_at_str = row['created_at'].strftime('%Y-%m-%d %H:%M') if row and row['created_at'] else 'N/A'
+    total_items, total_val = get_stats(search_buyer, filter_date, filter_month, filter_year)
+
+    return jsonify({
+        'success': True,
+        'item': {
+            'id': new_id,
+            'mine_code': code,
+            'item_description': desc,
+            'price': price,
+            'buyer_name': buyer,
+            'status': status,
+            'created_at': created_at_str
+        },
+        'total_items': total_items,
+        'total_val': total_val
+    })
+
+@app.route('/set_status/<int:item_id>/<string:new_status>', methods=['POST'])
 def set_status(item_id, new_status):
     search_buyer = request.args.get('search_buyer', '')
     filter_date = request.args.get('filter_date', '')
@@ -351,11 +524,11 @@ def set_status(item_id, new_status):
     item = cursor.fetchone()
 
     if item:
-        # Backend Safety Rule: If item is already Paid, it CANNOT be changed to Cancelled
+        # Prevent paid items from being cancelled
         if item['status'] == 'Paid' and new_status == 'Cancelled':
             cursor.close()
             conn.close()
-            return redirect(url_for('index', search_buyer=search_buyer, filter_date=filter_date, filter_month=filter_month, filter_year=filter_year))
+            return jsonify({'success': False, 'message': 'Paid items cannot be cancelled.'})
 
         if new_status in ['Paid', 'Cancelled', 'Mined', 'Shipped']:
             cursor.execute('UPDATE ukay_inventory SET status = %s WHERE id = %s', (new_status, item_id))
@@ -363,17 +536,39 @@ def set_status(item_id, new_status):
 
     cursor.close()
     conn.close()
-    return redirect(url_for('index', search_buyer=search_buyer, filter_date=filter_date, filter_month=filter_month, filter_year=filter_year))
 
-@app.route('/delete/<int:item_id>')
+    total_items, total_val = get_stats(search_buyer, filter_date, filter_month, filter_year)
+
+    return jsonify({
+        'success': True,
+        'item_id': item_id,
+        'new_status': new_status,
+        'total_items': total_items,
+        'total_val': total_val
+    })
+
+@app.route('/delete/<int:item_id>', methods=['POST'])
 def delete_item(item_id):
+    search_buyer = request.args.get('search_buyer', '')
+    filter_date = request.args.get('filter_date', '')
+    filter_month = request.args.get('filter_month', '')
+    filter_year = request.args.get('filter_year', '')
+
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('DELETE FROM ukay_inventory WHERE id = %s', (item_id,))
     conn.commit()
     cursor.close()
     conn.close()
-    return redirect(url_for('index'))
+
+    total_items, total_val = get_stats(search_buyer, filter_date, filter_month, filter_year)
+
+    return jsonify({
+        'success': True,
+        'item_id': item_id,
+        'total_items': total_items,
+        'total_val': total_val
+    })
 
 @app.route('/export/excel')
 def export_excel():

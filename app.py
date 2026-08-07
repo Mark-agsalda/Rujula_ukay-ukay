@@ -156,7 +156,7 @@ HTML_TEMPLATE = '''
     <div class="header-bar">
         <h1>👕 Ukay-Ukay Live Inventory Tracker</h1>
         {% if has_excel %}
-            <a href="/export/excel?search_buyer={{ search_buyer }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn btn-excel">📊 Export View to Excel</a>
+            <a href="/export/excel?search_buyer={{ search_buyer }}&filter_status={{ filter_status }}&filter_date={{ filter_date }}&filter_month={{ filter_month }}&filter_year={{ filter_year }}" class="btn btn-excel">📊 Export View to Excel</a>
         {% endif %}
     </div>
 
@@ -167,6 +167,16 @@ HTML_TEMPLATE = '''
             <div class="form-group" style="flex: 1.5;">
                 <label>Search Buyer Name / Handle</label>
                 <input type="text" name="search_buyer" id="search_buyer" placeholder="e.g. Maria or @MariaClara" value="{{ search_buyer }}">
+            </div>
+            <div class="form-group">
+                <label>Status Filter</label>
+                <select name="filter_status" id="filter_status">
+                    <option value="">-- All Statuses --</option>
+                    <option value="Mined" {% if filter_status == 'Mined' %}selected{% endif %}>Mined (Unpaid)</option>
+                    <option value="Paid" {% if filter_status == 'Paid' %}selected{% endif %}>Paid</option>
+                    <option value="Shipped" {% if filter_status == 'Shipped' %}selected{% endif %}>Shipped</option>
+                    <option value="Cancelled" {% if filter_status == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+                </select>
             </div>
             <div class="form-group">
                 <label>Specific Date</label>
@@ -312,6 +322,7 @@ HTML_TEMPLATE = '''
     function getQueryParams() {
         const params = new URLSearchParams();
         params.append('search_buyer', document.getElementById('search_buyer').value);
+        params.append('filter_status', document.getElementById('filter_status').value);
         params.append('filter_date', document.getElementById('filter_date').value);
         params.append('filter_month', document.getElementById('filter_month').value);
         params.append('filter_year', document.getElementById('filter_year').value);
@@ -448,8 +459,8 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-def fetch_filtered_items(search_buyer, f_date, f_month, f_year):
-    """Utility function to build dynamic SQL queries based on search and date filters."""
+def fetch_filtered_items(search_buyer, f_status, f_date, f_month, f_year):
+    """Utility function to build dynamic SQL queries based on search, status, and date filters."""
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
 
@@ -459,6 +470,9 @@ def fetch_filtered_items(search_buyer, f_date, f_month, f_year):
     if search_buyer:
         query += " AND buyer_name LIKE %s"
         params.append(f"%{search_buyer.strip()}%")
+    if f_status:
+        query += " AND status = %s"
+        params.append(f_status.strip())
     if f_date:
         query += " AND DATE(created_at) = %s"
         params.append(f_date)
@@ -476,19 +490,20 @@ def fetch_filtered_items(search_buyer, f_date, f_month, f_year):
     conn.close()
     return items
 
-def get_stats(search_buyer, filter_date, filter_month, filter_year):
-    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
+def get_stats(search_buyer, filter_status, filter_date, filter_month, filter_year):
+    items = fetch_filtered_items(search_buyer, filter_status, filter_date, filter_month, filter_year)
     total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
     return len(items), total_val
 
 @app.route('/')
 def index():
     search_buyer = request.args.get('search_buyer', '')
+    filter_status = request.args.get('filter_status', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
 
-    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
+    items = fetch_filtered_items(search_buyer, filter_status, filter_date, filter_month, filter_year)
     total_val = sum(float(item['price']) for item in items if item['status'] != 'Cancelled')
 
     return render_template_string(
@@ -497,6 +512,7 @@ def index():
         total_val=total_val,
         has_excel=HAS_OPENPYXL,
         search_buyer=search_buyer,
+        filter_status=filter_status,
         filter_date=filter_date,
         filter_month=filter_month,
         filter_year=filter_year
@@ -511,6 +527,7 @@ def add_item():
     status = request.form['status']
 
     search_buyer = request.args.get('search_buyer', '')
+    filter_status = request.args.get('filter_status', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
@@ -530,7 +547,7 @@ def add_item():
     conn.close()
 
     created_at_str = row['created_at'].strftime('%Y-%m-%d %H:%M') if row and row['created_at'] else 'N/A'
-    total_items, total_val = get_stats(search_buyer, filter_date, filter_month, filter_year)
+    total_items, total_val = get_stats(search_buyer, filter_status, filter_date, filter_month, filter_year)
 
     return jsonify({
         'success': True,
@@ -550,6 +567,7 @@ def add_item():
 @app.route('/set_status/<int:item_id>/<string:new_status>', methods=['POST'])
 def set_status(item_id, new_status):
     search_buyer = request.args.get('search_buyer', '')
+    filter_status = request.args.get('filter_status', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
@@ -573,7 +591,7 @@ def set_status(item_id, new_status):
     cursor.close()
     conn.close()
 
-    total_items, total_val = get_stats(search_buyer, filter_date, filter_month, filter_year)
+    total_items, total_val = get_stats(search_buyer, filter_status, filter_date, filter_month, filter_year)
 
     return jsonify({
         'success': True,
@@ -586,6 +604,7 @@ def set_status(item_id, new_status):
 @app.route('/delete/<int:item_id>', methods=['POST'])
 def delete_item(item_id):
     search_buyer = request.args.get('search_buyer', '')
+    filter_status = request.args.get('filter_status', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
@@ -597,7 +616,7 @@ def delete_item(item_id):
     cursor.close()
     conn.close()
 
-    total_items, total_val = get_stats(search_buyer, filter_date, filter_month, filter_year)
+    total_items, total_val = get_stats(search_buyer, filter_status, filter_date, filter_month, filter_year)
 
     return jsonify({
         'success': True,
@@ -612,11 +631,12 @@ def export_excel():
         return "openpyxl module is missing in requirements.txt", 500
 
     search_buyer = request.args.get('search_buyer', '')
+    filter_status = request.args.get('filter_status', '')
     filter_date = request.args.get('filter_date', '')
     filter_month = request.args.get('filter_month', '')
     filter_year = request.args.get('filter_year', '')
 
-    items = fetch_filtered_items(search_buyer, filter_date, filter_month, filter_year)
+    items = fetch_filtered_items(search_buyer, filter_status, filter_date, filter_month, filter_year)
 
     wb = openpyxl.Workbook()
     ws = wb.active
